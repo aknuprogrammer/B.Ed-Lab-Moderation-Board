@@ -1,0 +1,520 @@
+const User = require('../models/User');
+const SessionLog = require('../models/SessionLog');
+const { College } = require('../models/MasterData');
+const emailService = require('./emailService');
+const AppError = require('../utils/AppError');
+const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
+
+const saveBase64Image = (base64Str, filename) => {
+  if (!base64Str) return null;
+  const matches = base64Str.match(/^data:image\/([A-Za-z-+\/]+);base64,(.+)$/);
+  if (!matches || matches.length !== 3) {
+    return null;
+  }
+  const buffer = Buffer.from(matches[2], 'base64');
+  const dir = path.join(__dirname, '..', 'uploads', 'profiles');
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  const filePath = path.join(dir, filename);
+  fs.writeFileSync(filePath, buffer);
+  return `/uploads/profiles/${filename}`;
+};
+
+const calculateDistance = (lat1, lon1, lat2, lon2) => {
+  const R = 6371e3; // Earth's radius in meters
+  const phi1 = (lat1 * Math.PI) / 180;
+  const phi2 = (lat2 * Math.PI) / 180;
+  const deltaPhi = ((lat2 - lat1) * Math.PI) / 180;
+  const deltaLambda = ((lon2 - lon1) * Math.PI) / 180;
+
+  const a =
+    Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+    Math.cos(phi1) *
+    Math.cos(phi2) *
+    Math.sin(deltaLambda / 2) *
+    Math.sin(deltaLambda / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c; // Distance in meters
+};
+
+const verifyPrincipalGeofence = (college, latitude, longitude, accuracy, actionName = 'access the system') => {
+  if (!college || typeof college.latitude !== 'number' || typeof college.longitude !== 'number') {
+    return; // No college coordinates configured, skip check
+  }
+
+  const userLat = parseFloat(latitude);
+  const userLon = parseFloat(longitude);
+  const userAcc = parseFloat(accuracy);
+
+  if (isNaN(userLat) || isNaN(userLon)) {
+    throw new AppError(`GPS Location access is required to ${actionName}.`, 400);
+  }
+
+  const distance = calculateDistance(userLat, userLon, college.latitude, college.longitude);
+  
+  // Use college's configured radius (radiusMeter) or default to 500m
+  const baseLimit = typeof college.radiusMeter === 'number' ? college.radiusMeter : 500;
+  
+  // Allow accuracy buffer (cap at 1500m to prevent complete spoofing, but allow wider margin)
+  const accuracyBuffer = !isNaN(userAcc) ? Math.min(userAcc, 1500) : 0;
+  const effectiveLimit = baseLimit + accuracyBuffer;
+
+  console.log(`[Geofence Audit] Action: ${actionName}, College: ${college.collegeName} (${college.collegeCode}), ` +
+              `College Coords: (${college.latitude}, ${college.longitude}), ` +
+              `User Coords: (${userLat}, ${userLon}) [Acc: ${userAcc}m], ` +
+              `Distance: ${distance.toFixed(1)}m, Limit: ${effectiveLimit.toFixed(1)}m`);
+
+  if (distance > effectiveLimit) {
+    throw new AppError(`Access Denied: You must ${actionName} from within the college campus.`, 403);
+  }
+};
+
+
+const generateToken = (id, role, sessionId) => {
+  return jwt.sign({ id, role, sessionId }, process.env.JWT_SECRET || 'secret123', {
+    expiresIn: '2h'
+  });
+};
+
+exports.login = async ({ regdNo, password, email, faceDescriptor, latitude, longitude, accuracy }, ipAddress = 'Unknown') => {
+  let user;
+  if (regdNo) {
+    user = await User.findOne({ regdNo: new RegExp(`^${regdNo.trim()}$`, 'i') });
+  } else if (email) {
+    user = await User.findOne({ regdNo: new RegExp(`^${email.trim()}$`, 'i') });
+  }
+
+  if (!user) {
+    throw new AppError('Invalid credentials', 401);
+  }
+
+  if ((user.role === 'STUDENT' || user.role === 'PRINCIPAL') && !user.isSetupComplete) {
+    throw new AppError('Please create your account before login', 403);
+  }
+
+  const isMatch = await user.comparePassword(password);
+  if (!isMatch) {
+    throw new AppError('Invalid credentials', 401);
+  }
+
+  // Check registration approval
+  if (user.role === 'STUDENT' || user.role === 'PRINCIPAL') {
+    if (!user.isApproved) {
+      if (user.approvalStatus === 'REJECTED') {
+        if (user.role === 'STUDENT') {
+          throw new AppError('Your registration was rejected by Your college Principal. Please register again with your own face.', 403);
+        } else {
+          throw new AppError('Your registration was rejected by the University. Please register again with your own face.', 403);
+        }
+      }
+      if (user.role === 'STUDENT') {
+        throw new AppError('Your registration is pending approval by Your college Principal. Please contact them.', 403);
+      } else {
+        throw new AppError('Your registration is pending approval by University. Please contact them.', 403);
+      }
+    }
+  }
+
+  // Face Authentication logic for students and principals
+  if (user.role === 'STUDENT' || user.role === 'PRINCIPAL') {
+    if (!faceDescriptor) {
+      // Frontend needs to capture face
+      return { status: 'FACE_REQUIRED', role: user.role, message: 'Face authentication required.' };
+    }
+
+    if (!user.faceDescriptor || user.faceDescriptor.length !== 128) {
+      throw new AppError('Face enrollment data is missing or invalid. Please contact Administrator.', 400);
+    }
+
+    if (!Array.isArray(faceDescriptor) || faceDescriptor.length !== 128) {
+      throw new AppError('Invalid live face data received.', 400);
+    }
+
+    // Calculate Euclidean distance
+    let distance = 0;
+    for (let i = 0; i < 128; i++) {
+      distance += Math.pow((faceDescriptor[i] || 0) - (user.faceDescriptor[i] || 0), 2);
+    }
+    distance = Math.sqrt(distance);
+
+    // Threshold: 0.55 is a good balance for face-api.js
+    if (distance > 0.55) {
+      throw new AppError(`Face authentication failed.`, 401);
+    }
+  }
+
+  // GPS Geofencing logic for Principals
+  if (user.role === 'PRINCIPAL') {
+    const college = await College.findById(user.collegeId);
+    verifyPrincipalGeofence(college, latitude, longitude, accuracy, 'log in');
+  }
+
+  const sessionId = crypto.randomUUID();
+  user.currentSessionId = sessionId;
+  await user.save();
+
+  // Determine Location if possible (mocked based on IP or simple lookup could go here, for now save IP)
+  let location = 'Local/Unknown';
+  if (ipAddress && ipAddress !== '::1' && ipAddress !== '127.0.0.1' && ipAddress !== 'Unknown') {
+    location = 'Remote Network';
+  }
+
+  // Record Session
+  await SessionLog.create({
+    userId: user._id,
+    userName: user.fullName || user.regdNo,
+    role: user.role,
+    loginTime: new Date(),
+    ipAddress,
+    location
+  });
+
+  return {
+    _id: user._id,
+    regdNo: user.regdNo,
+    fullName: user.fullName,
+    role: user.role,
+    token: generateToken(user._id, user.role, sessionId)
+  };
+};
+
+exports.logout = async (user) => {
+  if (user && user.currentSessionId) {
+    const sessionLog = await SessionLog.findOne({ userId: user._id }).sort({ loginTime: -1 });
+    if (sessionLog && !sessionLog.logoutTime) {
+      sessionLog.logoutTime = new Date();
+      sessionLog.durationSeconds = Math.round((sessionLog.logoutTime - sessionLog.loginTime) / 1000);
+      await sessionLog.save();
+    }
+    user.currentSessionId = null;
+    await user.save();
+  }
+  return { message: 'Logged out successfully' };
+};
+
+exports.sendOtp = async ({ regdNo, email, role, collegeId, latitude, longitude, accuracy }) => {
+  let user;
+  if (role === 'PRINCIPAL') {
+    if (!email || !collegeId) {
+      throw new AppError('College and email address are required.', 400);
+    }
+
+    // GPS Geofencing logic for Principals requesting OTP
+    const college = await College.findById(collegeId);
+    verifyPrincipalGeofence(college, latitude, longitude, accuracy, 'request registration OTP');
+
+    user = await User.findOne({ regdNo: email, collegeId, role: 'PRINCIPAL' });
+  } else {
+    if (!regdNo || !email) {
+      throw new AppError('Registration number and email address are required.', 400);
+    }
+    user = await User.findOne({ regdNo, role: 'STUDENT' });
+  }
+
+  if (!user) {
+    throw new AppError('User record not found.', 404);
+  }
+
+  if (user.isSetupComplete) {
+    throw new AppError('Account is already set up. Please log in.', 400);
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  if (user.email && user.email.trim() !== '' && user.email.trim().toLowerCase() !== cleanEmail) {
+    throw new AppError('The email provided does not match our records.', 400);
+  }
+
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  user.tempOtp = otp;
+  user.otpExpiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+  if (!user.email) {
+    user.email = cleanEmail;
+  }
+
+  await user.save();
+
+  const emailResult = await emailService.sendStudentOtpEmail({
+    to: cleanEmail,
+    studentName: user.fullName || 'User',
+    otp
+  });
+
+  const isMock = emailResult && emailResult.mock;
+  return {
+    message: isMock
+      ? `OTP sent successfully. (Testing/Development Mode OTP: ${otp})`
+      : `OTP verification email has been successfully sent to ${cleanEmail}.`,
+    otp: isMock ? otp : undefined
+  };
+};
+
+exports.checkDuplicateFace = async ({ faceDescriptor, regdNo, email, role, collegeId }) => {
+  if (!faceDescriptor || !Array.isArray(faceDescriptor) || faceDescriptor.length !== 128) {
+    throw new AppError('Invalid face descriptor.', 400);
+  }
+
+  const isZeroed = (arr) => arr.every(val => (val || 0) === 0);
+
+  if (isZeroed(faceDescriptor)) {
+    throw new AppError('Invalid face capture data (blank or zeroed descriptor). Please stand in a well-lit area and try again.', 400);
+  }
+
+  // Skip duplicate face checking for students and principals
+  if (role === 'STUDENT' || role === 'PRINCIPAL') {
+    return { message: `Face duplicate check skipped for ${role.toLowerCase()}s` };
+  }
+
+  // Find the current user to skip them
+  let currentUser = null;
+  if (role === 'PRINCIPAL' && email && collegeId) {
+    currentUser = await User.findOne({
+      regdNo: new RegExp(`^${email.trim()}$`, 'i'),
+      collegeId,
+      role: 'PRINCIPAL'
+    });
+  } else if (regdNo) {
+    currentUser = await User.findOne({
+      regdNo: new RegExp(`^${regdNo.trim()}$`, 'i'),
+      role: 'STUDENT'
+    });
+  }
+
+  const existingUsers = await User.find({ isSetupComplete: true }, 'regdNo faceDescriptor').lean();
+
+  for (const existingUser of existingUsers) {
+    if (!existingUser.faceDescriptor || existingUser.faceDescriptor.length !== 128) continue;
+    if (isZeroed(existingUser.faceDescriptor)) continue;
+
+    if (currentUser && existingUser._id.toString() === currentUser._id.toString()) continue;
+
+    let distance = 0;
+    for (let i = 0; i < 128; i++) {
+      distance += Math.pow((faceDescriptor[i] || 0) - (existingUser.faceDescriptor[i] || 0), 2);
+    }
+    distance = Math.sqrt(distance);
+
+    // Strict threshold (0.48) optimized for 1-to-many lookups to prevent false matches across large datasets
+    if (distance <= 0.48) {
+      throw new AppError(`Security Alert: This face is already registered to another user (${existingUser.regdNo}). You cannot register the same face for multiple accounts.`, 400);
+    }
+  }
+
+  return { message: 'Face is unique' };
+};
+
+exports.setupAccount = async ({ regdNo, email, otp, password, role, collegeId, faceDescriptor, facePhoto, latitude, longitude, accuracy }) => {
+  let user;
+  if (role === 'PRINCIPAL') {
+    if (!email || !collegeId || !otp || !password) {
+      throw new AppError('All fields are required.', 400);
+    }
+
+    // GPS Geofencing logic for Principals during registration setup
+    const college = await College.findById(collegeId);
+    verifyPrincipalGeofence(college, latitude, longitude, accuracy, 'register');
+
+    user = await User.findOne({ regdNo: email, collegeId, role: 'PRINCIPAL' });
+  } else {
+    if (!regdNo || !email || !otp || !password) {
+      throw new AppError('All fields are required.', 400);
+    }
+    user = await User.findOne({ regdNo, role: 'STUDENT' });
+  }
+
+  if (!user) {
+    throw new AppError('User record not found.', 404);
+  }
+
+  if (user.isSetupComplete) {
+    throw new AppError('Account is already set up. Please log in.', 400);
+  }
+
+  if (!user.tempOtp || user.tempOtp !== otp) {
+    throw new AppError('Invalid OTP code.', 400);
+  }
+
+  if (!user.otpExpiresAt || new Date() > user.otpExpiresAt) {
+    throw new AppError('OTP has expired. Please request a new one.', 400);
+  }
+
+  if (role === 'STUDENT' || role === 'PRINCIPAL') {
+    if (!faceDescriptor || !Array.isArray(faceDescriptor) || faceDescriptor.length !== 128) {
+      throw new AppError('Face capture is required to set up your account.', 400);
+    }
+
+    // Delegate duplicate checking to the reusable method
+    await exports.checkDuplicateFace({ faceDescriptor, regdNo, email, role, collegeId });
+
+    user.faceDescriptor = faceDescriptor;
+
+    // Save live photo image if provided
+    if (facePhoto) {
+      const fileName = `${user._id}_${Date.now()}_profile.jpg`;
+      user.profileImage = saveBase64Image(facePhoto, fileName);
+    }
+    user.isApproved = false;
+    user.approvalStatus = 'PENDING';
+  } else {
+    user.isApproved = true;
+    user.approvalStatus = 'APPROVED';
+  }
+
+  user.password = password;
+  user.isSetupComplete = true;
+  user.tempOtp = undefined;
+  user.otpExpiresAt = undefined;
+  user.email = email.trim().toLowerCase();
+
+  // NOTE: According to the new flow, we do NOT automatically create a session and log them in here.
+  // We want them to navigate to Login page and authenticate with their newly captured face.
+  user.currentSessionId = null;
+
+  await user.save();
+
+  return {
+    message: 'Account setup successful. Please log in with your face verification.',
+    requireLogin: true
+  };
+};
+
+exports.fixAdmin = async () => {
+  let admin = await User.findOne({ regdNo: 'admin@aknu.edu' });
+  if (!admin) {
+    admin = new User({ regdNo: 'admin@aknu.edu' });
+  }
+  admin.role = 'ADMIN';
+  admin.password = 'Admin@1234';
+  admin.fullName = 'System Administrator';
+  admin.isSetupComplete = true;
+  await admin.save();
+  return { message: 'Admin account has been reset. You can now login with email: admin@aknu.edu and password: Admin@1234' };
+};
+
+exports.createSysAdmin = async () => {
+  let admin = await User.findOne({ regdNo: 'systemadmin@aknu.edu.in' });
+  if (!admin) {
+    admin = new User({ regdNo: 'systemadmin@aknu.edu.in' });
+  }
+  admin.role = 'SYSTEM_ADMIN';
+  admin.password = 'SystemAdmin@2026';
+  admin.fullName = 'System Administrator';
+  admin.isSetupComplete = true;
+  await admin.save();
+  return { message: 'System Admin account has been created/reset. You can now login with email: systemadmin@aknu.edu.in and password: SystemAdmin@2026' };
+};
+
+exports.getCollegesList = async () => {
+  const colleges = await College.find({}, 'collegeCode collegeName').lean();
+
+  colleges.sort((a, b) => {
+    const numA = parseInt(a.collegeCode, 10);
+    const numB = parseInt(b.collegeCode, 10);
+    if (!isNaN(numA) && !isNaN(numB)) {
+      return numA - numB;
+    }
+    return String(a.collegeCode).localeCompare(String(b.collegeCode));
+  });
+
+  return colleges;
+};
+
+exports.me = async (userId) => {
+  const user = await User.findById(userId)
+    .populate('collegeId', 'collegeName collegeCode')
+    .populate('courseId', 'courseName courseCode')
+    .select('-password -plainPassword -tempOtp -otpExpiresAt');
+
+  if (!user) {
+    throw new AppError('User not found', 404);
+  }
+  return user;
+};
+
+exports.createBos = async () => {
+  let bos = await User.findOne({ regdNo: 'bos@aknu.edu.in' });
+  if (!bos) {
+    bos = new User({ regdNo: 'bos@aknu.edu.in' });
+  }
+  bos.role = 'BOS';
+  bos.password = 'Bos@2026';
+  bos.fullName = 'BOS Administrator';
+  bos.isSetupComplete = true;
+  bos.isApproved = true;
+  bos.approvalStatus = 'APPROVED';
+  await bos.save();
+  return { message: 'BOS account has been created/reset. You can now login with email: bos@aknu.edu.in and password: Bos@2026' };
+};
+
+exports.forgotPasswordSendOtp = async ({ email }) => {
+  if (!email) {
+    throw new AppError('Email address is required.', 400);
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  const user = await User.findOne({ email: cleanEmail, role: { $in: ['STUDENT', 'PRINCIPAL'] } });
+
+  if (!user) {
+    throw new AppError('Account with this email does not exist.', 404);
+  }
+
+  if (!user.isSetupComplete) {
+    throw new AppError('Please complete your initial registration / first-time setup first.', 400);
+  }
+
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  user.tempOtp = otp;
+  user.otpExpiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+
+  await user.save();
+
+  const emailResult = await emailService.sendForgotPasswordOtpEmail({
+    to: cleanEmail,
+    userName: user.fullName || 'User',
+    otp
+  });
+
+  const isMock = emailResult && emailResult.mock;
+  return {
+    message: isMock
+      ? `OTP sent successfully. (Testing/Development Mode OTP: ${otp})`
+      : `OTP verification email has been successfully sent to ${cleanEmail}.`,
+    otp: isMock ? otp : undefined
+  };
+};
+
+exports.forgotPasswordReset = async ({ email, otp, password }) => {
+  if (!email || !otp || !password) {
+    throw new AppError('All fields are required.', 400);
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  const user = await User.findOne({ email: cleanEmail, role: { $in: ['STUDENT', 'PRINCIPAL'] } });
+
+  if (!user) {
+    throw new AppError('Account with this email does not exist.', 404);
+  }
+
+  if (!user.tempOtp || user.tempOtp !== otp) {
+    throw new AppError('Invalid OTP code.', 400);
+  }
+
+  if (!user.otpExpiresAt || new Date() > user.otpExpiresAt) {
+    throw new AppError('OTP has expired. Please request a new one.', 400);
+  }
+
+  user.password = password;
+  user.tempOtp = undefined;
+  user.otpExpiresAt = undefined;
+
+  await user.save();
+
+  return {
+    message: 'Password reset successful. Please log in with your new password.',
+    success: true
+  };
+};
