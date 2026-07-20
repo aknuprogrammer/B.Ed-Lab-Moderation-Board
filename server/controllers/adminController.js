@@ -33,7 +33,7 @@ exports.uploadMasterData = async (req, res) => {
 exports.createRecord = async (req, res) => {
   try {
     const result = await masterDataService.createRecord(req.params.type, req.body);
-    
+
     activityLogService.logActivity({
       userId: req.user._id,
       userRole: req.user.role,
@@ -53,7 +53,7 @@ exports.createRecord = async (req, res) => {
 exports.promoteStudents = async (req, res) => {
   try {
     const result = await masterDataService.promoteStudents(req.body);
-    
+
     activityLogService.logActivity({
       userId: req.user._id,
       userRole: req.user.role,
@@ -72,7 +72,7 @@ exports.promoteStudents = async (req, res) => {
 exports.updateRecord = async (req, res) => {
   try {
     const result = await masterDataService.updateRecord(req.params.type, req.params.id, req.body);
-    
+
     const recordName = result.fullName || result.collegeName || result.subName || result.paperName || result.courseName || result.groupName || 'record';
 
     activityLogService.logActivity({
@@ -94,7 +94,7 @@ exports.updateRecord = async (req, res) => {
 exports.deleteRecord = async (req, res) => {
   try {
     const result = await masterDataService.deleteRecord(req.params.type, req.params.id);
-    
+
     activityLogService.logActivity({
       userId: req.user._id,
       userRole: req.user.role,
@@ -215,7 +215,7 @@ exports.getUniqueGroupSubjects = async (req, res) => {
 exports.createEvaluator = async (req, res) => {
   try {
     const result = await evaluatorAdminService.createEvaluator(req.body);
-    
+
     activityLogService.logActivity({
       userId: req.user._id,
       userRole: req.user.role,
@@ -299,11 +299,11 @@ exports.reallocateEvaluator = async (req, res) => {
       actionType: req.body.newEvaluatorId ? 'REALLOCATE_EVALUATOR' : 'EXTEND_DEADLINE',
       entityId: req.body.assignmentId,
       entityType: 'Assignment',
-      details: { 
-        ...req.body, 
-        description: req.body.newEvaluatorId 
-          ? `Reallocated assignment (${subjectName}) - ${result.diffString}` 
-          : `Extended deadline for assignment (${subjectName}) - ${result.diffString}` 
+      details: {
+        ...req.body,
+        description: req.body.newEvaluatorId
+          ? `Reallocated assignment (${subjectName}) - ${result.diffString}`
+          : `Extended deadline for assignment (${subjectName}) - ${result.diffString}`
       }
     }).catch(err => console.error("Activity logging failed:", err));
 
@@ -439,7 +439,7 @@ exports.getSessionLogs = async (req, res) => {
 exports.getSessionLogSummary = async (req, res) => {
   try {
     const SessionLog = require('../models/SessionLog');
-    
+
     const summary = await SessionLog.aggregate([
       {
         $group: {
@@ -468,19 +468,19 @@ exports.updateCollegePasswords = async (req, res) => {
   try {
     const User = require('../models/User');
     const bcrypt = require('bcryptjs');
-    
+
     // Default logic: set to 'password123' if no password is provided in body, or what's in req.body.password
     const newPassword = req.body.password || 'password123';
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(newPassword, salt);
-    
+
     const result = await User.updateMany(
       { role: 'PRINCIPAL' },
-      { 
-        $set: { 
+      {
+        $set: {
           password: hashedPassword,
           isSetupComplete: false
-        } 
+        }
       }
     );
 
@@ -491,7 +491,7 @@ exports.updateCollegePasswords = async (req, res) => {
       entityType: 'User',
       details: { description: `Reset all college passwords to a default.` }
     }).catch(err => console.error("Activity logging failed:", err));
-    
+
     res.json({ message: `Successfully updated passwords for ${result.modifiedCount} colleges.` });
   } catch (error) {
     res.status(error.statusCode || 500).json({ message: error.message });
