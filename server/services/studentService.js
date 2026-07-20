@@ -87,23 +87,29 @@ exports.submitAssignment = async ({ assignmentId, file, user, note, extractedTex
     const studentName = String(user.fullName).toUpperCase();
     const subjectCode = assignment.subjectId?.subCode?.toUpperCase() || assignment.groupSubjectName?.toUpperCase();
 
-    const hasRegNo = serverExtractedText.includes(regdNo) || (clientExtractedText && clientExtractedText.toUpperCase().includes(regdNo));
-    const hasStudentName = serverExtractedText.includes(studentName) || (clientExtractedText && clientExtractedText.toUpperCase().includes(studentName));
-    const hasSubjectCode = subjectCode ? (serverExtractedText.includes(subjectCode) || (clientExtractedText && clientExtractedText.toUpperCase().includes(subjectCode))) : true;
+    const normalizeText = (t) => (t || '').replace(/[\s\W_]+/g, '').toUpperCase();
+    const combinedText = normalizeText(serverExtractedText) + normalizeText(clientExtractedText);
 
-    const hasText = serverExtractedText.trim() !== '' || (clientExtractedText && clientExtractedText.trim() !== '');
+    const normRegdNo = normalizeText(String(user.regdNo));
+    const normStudentName = normalizeText(String(user.fullName));
+    const normSubjectCode = subjectCode ? normalizeText(subjectCode) : '';
 
-    if (hasText && (!hasRegNo || !hasSubjectCode || !hasStudentName)) {
+    const hasRegNo = combinedText.includes(normRegdNo);
+    const hasStudentName = combinedText.includes(normStudentName);
+    const hasSubjectCode = normSubjectCode ? combinedText.includes(normSubjectCode) : true;
+
+    const hasText = combinedText.length > 20;
+
+    // 1. Check if it's the correct student's record
+    if (hasText && !hasRegNo && !hasStudentName) {
       if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
-      
-      let errorMsg = '';
-      if (!hasRegNo && !hasSubjectCode && !hasStudentName) {
-        errorMsg = 'We could not find the student name, reg no, and subject code in the uploading document. Please ensure you have uploaded the correct lab record.';
-      } else {
-        errorMsg = 'The student name, reg no, or subject code in the uploading document are wrong or do not match your details.';
-      }
+      throw new AppError('Upload rejected: This document appears to belong to another student. We could not find your Registration Number or Name on the certificate page.', 400);
+    }
 
-      throw new AppError(errorMsg, 400);
+    // 2. Check if it's the correct subject
+    if (hasText && normSubjectCode && !hasSubjectCode) {
+      if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+      throw new AppError(`Upload rejected: You appear to be uploading a record for the wrong subject. The subject code (${subjectCode}) was not found on the certificate page.`, 400);
     }
   } catch (parseError) {
     if (parseError.statusCode) throw parseError;

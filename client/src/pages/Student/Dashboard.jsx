@@ -260,29 +260,42 @@ const UploadRecordModal = ({ assignment, onClose, onSuccess }) => {
       const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
       let fullText = '';
       
-      const numPages = Math.min(pdf.numPages, 30); // limit to 30 pages just in case
-      // Start from page 2 to skip the cover/certificate page
-      const startPage = numPages > 1 ? 2 : 1;
-      for (let i = startPage; i <= numPages; i++) {
-        setScanProgress(`Scanning page ${i} of ${numPages}...`);
+      // Scan only the first page (certificate page) to verify the subject and student roll number
+      const startPage = 1;
+      const endPage = 1;
+      
+      for (let i = startPage; i <= endPage; i++) {
+        setScanProgress(`Processing page ${i}...`);
         const page = await pdf.getPage(i);
-        const viewport = page.getViewport({ scale: 1.5 });
-        const canvas = document.createElement('canvas');
-        const context = canvas.getContext('2d');
-        canvas.height = viewport.height;
-        canvas.width = viewport.width;
         
-        await page.render({ canvasContext: context, viewport }).promise;
-        const imgData = canvas.toDataURL('image/jpeg', 0.8);
+        // 1. First try to get embedded text (Instant)
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items.map(item => item.str).join(' ');
         
-        const { data: { text } } = await Tesseract.recognize(imgData, 'eng', {
-          logger: m => {
-            if (m.status === 'recognizing text') {
-              setScanProgress(`Scanning page ${i} of ${numPages} (${Math.round(m.progress * 100)}%)`);
+        if (pageText.trim().length > 50) {
+          // If the page has actual text, no need for slow OCR
+          fullText += pageText + ' ';
+        } else {
+          // 2. If no text (scanned image), fallback to OCR
+          setScanProgress(`Running OCR on page ${i}... (This may take a moment)`);
+          const viewport = page.getViewport({ scale: 2.0 }); // High scale for accurate text recognition
+          const canvas = document.createElement('canvas');
+          const context = canvas.getContext('2d');
+          canvas.height = viewport.height;
+          canvas.width = viewport.width;
+          
+          await page.render({ canvasContext: context, viewport }).promise;
+          const imgData = canvas.toDataURL('image/jpeg', 0.9); // High quality
+          
+          const { data: { text } } = await Tesseract.recognize(imgData, 'eng', {
+            logger: m => {
+              if (m.status === 'recognizing text') {
+                setScanProgress(`Scanning page ${i} (${Math.round(m.progress * 100)}%)`);
+              }
             }
-          }
-        });
-        fullText += text + ' ';
+          });
+          fullText += text + ' ';
+        }
       }
       return fullText;
     } catch (err) {
