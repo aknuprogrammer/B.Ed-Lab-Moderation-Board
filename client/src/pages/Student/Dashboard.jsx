@@ -259,10 +259,10 @@ const UploadRecordModal = ({ assignment, onClose, onSuccess }) => {
       const arrayBuffer = await fileObj.arrayBuffer();
       const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
       let fullText = '';
-      
-      // Scan only the first page (certificate page) to verify the subject and student roll number
+      // Scan the certificate (Page 1) to verify student identity,
+      // AND scan all content pages for the backend plagiarism/similarity checker.
       const startPage = 1;
-      const endPage = 1;
+      const endPage = pdf.numPages;
       
       for (let i = startPage; i <= endPage; i++) {
         setScanProgress(`Processing page ${i}...`);
