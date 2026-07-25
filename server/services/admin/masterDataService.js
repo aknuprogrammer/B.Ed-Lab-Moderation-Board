@@ -759,7 +759,7 @@ exports.getStudents = async () => {
     .populate('collegeId', 'collegeCode')
     .populate('groupId', 'groupCode')
     .populate('courseId', 'courseCode')
-    .select('-password')
+    .select('-password -profileImage -faceDescriptor')
     .lean();
 
   return students.map(s => ({

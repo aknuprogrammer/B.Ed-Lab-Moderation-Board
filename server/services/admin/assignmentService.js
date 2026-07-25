@@ -163,6 +163,7 @@ exports.getAssignmentData = async ({ collegeCode, courseCode, semester, groupCod
 
 exports.getAssignments = async () => {
   return await Assignment.find()
+    .select('-extractedText')
     .populate({
       path: 'studentId',
       select: 'fullName regdNo currentSemester collegeId courseId academicYear',
@@ -173,7 +174,8 @@ exports.getAssignments = async () => {
     })
     .populate('subjectId', 'subName subCode type semester maxMarks subPassMarks')
     .populate('evaluatorId', 'fullName')
-    .sort({ createdAt: -1 });
+    .sort({ createdAt: -1 })
+    .lean();
 };
 
 exports.getPaperGrades = async (studentId) => {
