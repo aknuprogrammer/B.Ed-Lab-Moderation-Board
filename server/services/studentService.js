@@ -56,11 +56,11 @@ exports.submitAssignment = async ({ assignmentId, file, user, note, extractedTex
   const semester = String(assignment.subjectId?.semester);
   const isEligibleFor5MB = isGroupSubject && (semester === '3' || semester === '4');
   
-  const MAX_SIZE = isEligibleFor5MB ? 5 * 1024 * 1024 : 2.5 * 1024 * 1024;
+  const MAX_SIZE = isEligibleFor5MB ? 5 * 1024 * 1024 : 3 * 1024 * 1024;
   
   if (file.size > MAX_SIZE) {
     if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
-    throw new AppError(`File size exceeds the limit. ${isEligibleFor5MB ? 'Max 5MB allowed for this group subject.' : 'Max 2.5MB allowed for this subject.'}`, 400);
+    throw new AppError(`File size exceeds the limit. ${isEligibleFor5MB ? 'Max 5MB allowed for this group subject.' : 'Max 3MB allowed for this subject.'}`, 400);
   }
 
   if (assignment.status === 'Evaluated') {
@@ -170,32 +170,8 @@ exports.submitAssignment = async ({ assignmentId, file, user, note, extractedTex
   // A real record will have many unique valid words. A blank document with repeating headers/noise will have very few.
   // We require at least 20 unique valid words to trigger the plagiarism scanner.
   if (comparisonText && comparisonText.length > 50 && uniqueWords.size > 20) {
-    // Check similarity before saving
-    let query = { status: { $in: ['Submitted', 'Evaluated'] }, _id: { $ne: assignment._id } };
-    if (assignment.groupSubjectName) {
-      query.groupSubjectName = assignment.groupSubjectName;
-    } else {
-      query.subjectId = assignment.subjectId._id || assignment.subjectId;
-    }
-    
-    const otherAssignments = await Assignment.find(query).select('extractedText');
-    for (const other of otherAssignments) {
-      if (other.extractedText && other.extractedText.trim().length > 50) {
-        let otherComparisonText = other.extractedText;
-        // Optionally strip from the other text too, though usually it's already stored without issues,
-        // but for exact safety we compare the stripped version with the stored version.
-        // Actually, the stored version has its own regNo. 
-        // A simpler way: we just compare comparisonText.
-        const similarity = stringSimilarity.compareTwoStrings(
-          comparisonText.toLowerCase(), 
-          otherComparisonText.toLowerCase()
-        );
-        if (similarity > 0.45) {
-          if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
-          throw new AppError(`Upload rejected: Content similarity exceeds 45% limit. (Match: ${(similarity * 100).toFixed(1)}%)`, 400);
-        }
-      }
-    }
+    // Plagiarism checking has been temporarily disabled as requested.
+    // We skip comparing with other assignments, but still save the extractedText for records.
     assignment.extractedText = comparisonText; // Save the stripped version so future checks compare stripped vs stripped
   } else if (!comparisonText && finalExtractedText) {
     // If stripping everything leaves nothing (e.g. only cover page uploaded)

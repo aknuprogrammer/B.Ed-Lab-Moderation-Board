@@ -259,10 +259,9 @@ const UploadRecordModal = ({ assignment, onClose, onSuccess }) => {
       const arrayBuffer = await fileObj.arrayBuffer();
       const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
       let fullText = '';
-      // Scan the certificate (Page 1) to verify student identity,
-      // AND scan all content pages for the backend plagiarism/similarity checker.
+      // Scan only the first page (certificate page) to verify the subject and student roll number
       const startPage = 1;
-      const endPage = pdf.numPages;
+      const endPage = 1;
       
       for (let i = startPage; i <= endPage; i++) {
         setScanProgress(`Processing page ${i}...`);
@@ -319,10 +318,10 @@ const UploadRecordModal = ({ assignment, onClose, onSuccess }) => {
     const semester = String(assignment.subjectId?.semester);
     const isEligibleFor5MB = isGroupSubject && (semester === '3' || semester === '4');
     
-    const MAX_SIZE = isEligibleFor5MB ? 5 * 1024 * 1024 : 2.5 * 1024 * 1024;
+    const MAX_SIZE = isEligibleFor5MB ? 5 * 1024 * 1024 : 3 * 1024 * 1024;
     
     if (selected.size > MAX_SIZE) {
-      setError(`File size exceeds the limit. ${isEligibleFor5MB ? 'Max 5MB allowed.' : 'Max 2.5MB allowed.'}`);
+      setError(`File size exceeds the limit. ${isEligibleFor5MB ? 'Max 5MB allowed.' : 'Max 3MB allowed.'}`);
       setFile(null);
       return;
     }
