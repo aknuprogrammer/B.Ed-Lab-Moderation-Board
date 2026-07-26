@@ -84,4 +84,11 @@ const assignmentSchema = new mongoose.Schema({
   }
 }, { timestamps: true });
 
+assignmentSchema.index({ createdAt: -1 });
+assignmentSchema.index({ studentId: 1 });
+assignmentSchema.index({ subjectId: 1 });
+assignmentSchema.index({ evaluatorId: 1 });
+assignmentSchema.index({ mode: 1 });
+assignmentSchema.index({ status: 1 });
+
 module.exports = mongoose.model('Assignment', assignmentSchema);

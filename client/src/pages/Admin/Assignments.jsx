@@ -90,17 +90,20 @@ const AssignmentTable = ({
   onEditSuggestedDeadline,
   selectedAssignmentIds,
   onToggleSelect,
-  onToggleSelectAll
+  onToggleSelectAll,
+  loading = false
 }) => {
   const pagedData = data.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-  const pagedIds = pagedData.map(a => a._id);
-  const allPagedSelected = pagedIds.length > 0 && pagedIds.every(id => selectedAssignmentIds.includes(id));
+  const selectedSet = useMemo(() => new Set(selectedAssignmentIds), [selectedAssignmentIds]);
+  const allIds = useMemo(() => data.map(a => a._id), [data]);
+  const allSelected = allIds.length > 0 && allIds.every(id => selectedSet.has(id));
+  const someSelected = !allSelected && allIds.some(id => selectedSet.has(id));
 
   const handleHeaderCheckboxChange = () => {
-    if (allPagedSelected) {
-      onToggleSelectAll(pagedIds, false);
+    if (allSelected) {
+      onToggleSelectAll(allIds, false);
     } else {
-      onToggleSelectAll(pagedIds, true);
+      onToggleSelectAll(allIds, true);
     }
   };
 
@@ -128,7 +131,8 @@ const AssignmentTable = ({
               <th className="px-4 py-3 text-left w-10">
                 <input
                   type="checkbox"
-                  checked={allPagedSelected}
+                  ref={el => { if (el) el.indeterminate = someSelected; }}
+                  checked={allSelected}
                   onChange={handleHeaderCheckboxChange}
                   className="h-4 w-4 text-white focus:ring-teal-500 border-slate-300 rounded cursor-pointer"
                 />
@@ -145,84 +149,95 @@ const AssignmentTable = ({
             </tr>
           </thead>
           <tbody>
-            {pagedData.map((assignment) => (
-              <tr key={assignment._id} className="border-b border-slate-100 hover:bg-teal-50 transition-colors">
-                <td className="px-4 py-2.5 text-center">
-                  <input
-                    type="checkbox"
-                    checked={selectedAssignmentIds.includes(assignment._id)}
-                    onChange={() => onToggleSelect(assignment._id)}
-                    className="h-4 w-4 text-teal-600 focus:ring-teal-500 border-slate-300 rounded cursor-pointer"
-                  />
-                </td>
-                <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
-                  <p className="font-medium text-slate-900">{assignment.groupSubjectName || assignment.subjectId?.subName}</p>
-                  <p className="text-xs text-slate-500">{assignment.subjectId?.subCode}</p>
-                </td>
-                <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
-                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-bold
-                    ${assignment.mode === 'Supply'
-                      ? 'bg-purple-100 text-purple-800 border border-purple-200'
-                      : 'bg-blue-100 text-blue-800 border border-blue-200'}
-                  `}>
-                    {assignment.mode || 'Regular'}
-                  </span>
-                </td>
-                <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm font-medium text-slate-900">{assignment.studentId?.fullName}</td>
-                <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">{assignment.studentId?.regdNo}</td>
-                <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">{assignment.pagesRequired}</td>
-                <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
-                  <div className="flex items-center gap-2">
-                    {new Date(assignment.deadline).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-                    {onEditDeadline && assignment.status === 'Pending' && (
-                      <button
-                        onClick={() => onEditDeadline(assignment)}
-                        className="text-slate-400 hover:text-teal-600 transition-colors cursor-pointer p-1"
-                        title="Edit Deadline"
-                      >
-                        <Edit className="h-3 w-3" />
-                      </button>
-                    )}
-                  </div>
-                </td>
-                <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
-                  <div className="flex items-center gap-2">
-                    {assignment.suggestedMarksDeadline ? (
-                      new Date(assignment.suggestedMarksDeadline).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
-                    ) : (
-                      <span className="text-slate-400 italic text-xs">Not Set</span>
-                    )}
-                    {onEditSuggestedDeadline && assignment.status === 'Pending' && (
-                      <button
-                        onClick={() => onEditSuggestedDeadline(assignment)}
-                        className="text-slate-400 hover:text-teal-600 transition-colors cursor-pointer p-1"
-                        title="Edit Suggested Marks Deadline"
-                      >
-                        <Edit className="h-3 w-3" />
-                      </button>
-                    )}
-                  </div>
-                </td>
-                {/* <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">{assignment.evaluatorId?.fullName || <span className="text-slate-400 italic text-xs">Unassigned</span>}</td> */}
-                {/* <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">{assignment.status === 'Evaluated' ? assignment.evaluatorId?.fullName : '—'}</td> */}
-                <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
-                  <div className="flex flex-col gap-1 items-start">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold
-                      ${assignment.status === 'Evaluated' ? 'bg-green-100 text-green-800' :
-                        assignment.status === 'Submitted' ? 'bg-blue-100 text-blue-800' : 'bg-yellow-100 text-yellow-800'}
-                    `}>
-                      {assignment.status}
-                    </span>
-                    {assignment.studentNote && (
-                      <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200 truncate max-w-[100px]" title={assignment.studentNote}>
-                        Has Note
-                      </span>
-                    )}
+            {loading ? (
+              <tr>
+                <td colSpan="11" className="px-6 py-12 text-center text-slate-500">
+                  <div className="flex flex-col items-center justify-center gap-2">
+                    <RefreshCw className="h-6 w-6 text-teal-600 animate-spin" />
+                    <span className="text-xs font-medium">Loading records...</span>
                   </div>
                 </td>
               </tr>
-            ))}
-            {data.length === 0 && (
+            ) : (
+              pagedData.map((assignment) => (
+                <tr key={assignment._id} className="border-b border-slate-100 hover:bg-teal-50 transition-colors">
+                  <td className="px-4 py-2.5 text-center">
+                    <input
+                      type="checkbox"
+                      checked={selectedSet.has(assignment._id)}
+                      onChange={() => onToggleSelect(assignment._id)}
+                      className="h-4 w-4 text-teal-600 focus:ring-teal-500 border-slate-300 rounded cursor-pointer"
+                    />
+                  </td>
+                  <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
+                    <p className="font-medium text-slate-900">{assignment.groupSubjectName || assignment.subjectId?.subName}</p>
+                    <p className="text-xs text-slate-500">{assignment.subjectId?.subCode}</p>
+                  </td>
+                  <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-bold
+                      ${assignment.mode === 'Supply'
+                        ? 'bg-purple-100 text-purple-800 border border-purple-200'
+                        : 'bg-blue-100 text-blue-800 border border-blue-200'}
+                    `}>
+                      {assignment.mode || 'Regular'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm font-medium text-slate-900">{assignment.studentId?.fullName}</td>
+                  <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">{assignment.studentId?.regdNo}</td>
+                  <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">{assignment.pagesRequired}</td>
+                  <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
+                    <div className="flex items-center gap-2">
+                      {new Date(assignment.deadline).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                      {onEditDeadline && assignment.status === 'Pending' && (
+                        <button
+                          onClick={() => onEditDeadline(assignment)}
+                          className="text-slate-400 hover:text-teal-600 transition-colors cursor-pointer p-1"
+                          title="Edit Deadline"
+                        >
+                          <Edit className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
+                    <div className="flex items-center gap-2">
+                      {assignment.suggestedMarksDeadline ? (
+                        new Date(assignment.suggestedMarksDeadline).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                      ) : (
+                        <span className="text-slate-400 italic text-xs">Not Set</span>
+                      )}
+                      {onEditSuggestedDeadline && assignment.status === 'Pending' && (
+                        <button
+                          onClick={() => onEditSuggestedDeadline(assignment)}
+                          className="text-slate-400 hover:text-teal-600 transition-colors cursor-pointer p-1"
+                          title="Edit Suggested Marks Deadline"
+                        >
+                          <Edit className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                  {/* <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">{assignment.evaluatorId?.fullName || <span className="text-slate-400 italic text-xs">Unassigned</span>}</td> */}
+                  {/* <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">{assignment.status === 'Evaluated' ? assignment.evaluatorId?.fullName : '—'}</td> */}
+                  <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
+                    <div className="flex flex-col gap-1 items-start">
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold
+                        ${assignment.status === 'Evaluated' ? 'bg-green-100 text-green-800' :
+                          assignment.status === 'Submitted' ? 'bg-blue-100 text-blue-800' : 'bg-yellow-100 text-yellow-800'}
+                      `}>
+                        {assignment.status}
+                      </span>
+                      {assignment.studentNote && (
+                        <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200 truncate max-w-[100px]" title={assignment.studentNote}>
+                          Has Note
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
+            {!loading && data.length === 0 && (
               <tr>
                 <td colSpan="11" className="px-6 py-8 text-center text-slate-400">
                   No assignments have been generated yet.
@@ -314,17 +329,20 @@ const Assignments = () => {
     }
   };
 
+  const [loadingAssignments, setLoadingAssignments] = useState(false);
+
   const fetchAssignments = async () => {
     try {
+      setLoadingAssignments(true);
       const res = await axios.get(`${API_BASE_URL}/api/admin/assignments`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
-      // Sort so newly generated assignments are on top
-      const sorted = res.data.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-      setAssignments(sorted);
+      setAssignments(res.data);
       setSelectedAssignmentIds([]);
     } catch (err) {
       console.error('Failed to load assignments');
+    } finally {
+      setLoadingAssignments(false);
     }
   };
 
@@ -543,8 +561,8 @@ const Assignments = () => {
     });
   }, [assignments, listCollege, listCourse, listSemester, listStatus, listSearch]);
 
-  const regularAssignments = filteredAssignments.filter(a => a.mode !== 'Supply');
-  const supplyAssignments = filteredAssignments.filter(a => a.mode === 'Supply');
+  const regularAssignments = useMemo(() => filteredAssignments.filter(a => a.mode !== 'Supply'), [filteredAssignments]);
+  const supplyAssignments = useMemo(() => filteredAssignments.filter(a => a.mode === 'Supply'), [filteredAssignments]);
 
   const [regularPage, setRegularPage] = useState(1);
   const [supplyPage, setSupplyPage] = useState(1);
@@ -560,7 +578,8 @@ const Assignments = () => {
       if (select) {
         return [...new Set([...prev, ...ids])];
       } else {
-        return prev.filter(id => !ids.includes(id));
+        const removeSet = new Set(ids);
+        return prev.filter(id => !removeSet.has(id));
       }
     });
   };
@@ -618,60 +637,50 @@ const Assignments = () => {
     setTimeout(() => { setMessage(''); setError(''); }, 3000);
   };
 
-  const handleBulkUpdateSubmissionDeadline = async () => {
-    if (!bulkSubmissionDeadline) {
-      alert("Please select a valid date for Submission Deadline.");
+  const handleBulkUpdateDeadlines = async () => {
+    if (!bulkSubmissionDeadline && !bulkSuggestedDeadline) {
+      alert("Please select at least one deadline (Submission Deadline or Suggested Marks Deadline) to update.");
       return;
     }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(bulkSubmissionDeadline)) {
-      alert("Invalid date format. Please use YYYY-MM-DD.");
+    if (bulkSubmissionDeadline && !/^\d{4}-\d{2}-\d{2}$/.test(bulkSubmissionDeadline)) {
+      alert("Invalid date format for Submission Deadline. Please use YYYY-MM-DD.");
+      return;
+    }
+    if (bulkSuggestedDeadline && !/^\d{4}-\d{2}-\d{2}$/.test(bulkSuggestedDeadline)) {
+      alert("Invalid date format for Suggested Marks Deadline. Please use YYYY-MM-DD.");
       return;
     }
     try {
-      setMessage('Updating submission deadlines...');
-      const res = await axios.put(`${API_BASE_URL}/api/admin/assignments/bulk-deadline`, {
-        assignmentIds: selectedAssignmentIds,
-        deadline: bulkSubmissionDeadline
-      }, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
-      setMessage(res.data.message || 'Submission deadlines updated successfully!');
+      setMessage('Updating deadlines...');
+      const BATCH_SIZE = 2000;
+      const totalCount = selectedAssignmentIds.length;
+
+      for (let i = 0; i < totalCount; i += BATCH_SIZE) {
+        const batchIds = selectedAssignmentIds.slice(i, i + BATCH_SIZE);
+        const payload = { assignmentIds: batchIds };
+        if (bulkSubmissionDeadline) payload.deadline = bulkSubmissionDeadline;
+        if (bulkSuggestedDeadline) payload.suggestedMarksDeadline = bulkSuggestedDeadline;
+
+        await axios.put(`${API_BASE_URL}/api/admin/assignments/bulk-deadline`, payload, {
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+        });
+        
+        if (totalCount > BATCH_SIZE) {
+          const processed = Math.min(i + BATCH_SIZE, totalCount);
+          setMessage(`Updating deadlines... (${processed} / ${totalCount})`);
+        }
+      }
+
+      setMessage(`Successfully updated deadlines for ${totalCount} assignment(s)!`);
       setSelectedAssignmentIds([]);
       setBulkSubmissionDeadline('');
-      fetchAssignments();
-      setRefreshTrigger(prev => prev + 1);
-    } catch (err) {
-      setError(err.response?.data?.message || 'Failed to update submission deadlines');
-    }
-    setTimeout(() => { setMessage(''); setError(''); }, 3000);
-  };
-
-  const handleBulkUpdateSuggestedDeadline = async () => {
-    if (!bulkSuggestedDeadline) {
-      alert("Please select a valid date for Suggested Marks Deadline.");
-      return;
-    }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(bulkSuggestedDeadline)) {
-      alert("Invalid date format. Please use YYYY-MM-DD.");
-      return;
-    }
-    try {
-      setMessage('Updating suggested marks deadlines...');
-      const res = await axios.put(`${API_BASE_URL}/api/admin/assignments/bulk-deadline`, {
-        assignmentIds: selectedAssignmentIds,
-        suggestedMarksDeadline: bulkSuggestedDeadline
-      }, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
-      setMessage(res.data.message || 'Suggested marks deadlines updated successfully!');
-      setSelectedAssignmentIds([]);
       setBulkSuggestedDeadline('');
       fetchAssignments();
       setRefreshTrigger(prev => prev + 1);
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to update suggested marks deadlines');
+      setError(err.response?.data?.message || 'Failed to update deadlines');
     }
-    setTimeout(() => { setMessage(''); setError(''); }, 3000);
+    setTimeout(() => { setMessage(''); setError(''); }, 4000);
   };
 
   return (
@@ -1098,36 +1107,34 @@ const Assignments = () => {
                   <label className="text-xs font-semibold text-slate-700">Sub. Deadline:</label>
                   <input
                     type="date"
-                    className="border border-slate-300 rounded px-2 py-1 text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none text-slate-800 bg-white"
+                    className="border border-slate-300 rounded px-2.5 py-1 text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none text-slate-800 bg-white"
                     value={bulkSubmissionDeadline}
                     onChange={(e) => setBulkSubmissionDeadline(e.target.value)}
                   />
-                  <button
-                    onClick={handleBulkUpdateSubmissionDeadline}
-                    className="px-3 py-1 bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold rounded shadow-sm transition-colors cursor-pointer"
-                  >
-                    Update Submission
-                  </button>
                 </div>
                 <div className="h-6 w-px bg-slate-200 hidden lg:block" />
                 <div className="flex items-center gap-2">
                   <label className="text-xs font-semibold text-slate-700">Suggested Deadline:</label>
                   <input
                     type="date"
-                    className="border border-slate-300 rounded px-2 py-1 text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none text-slate-800 bg-white"
+                    className="border border-slate-300 rounded px-2.5 py-1 text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none text-slate-800 bg-white"
                     value={bulkSuggestedDeadline}
                     onChange={(e) => setBulkSuggestedDeadline(e.target.value)}
                   />
-                  <button
-                    onClick={handleBulkUpdateSuggestedDeadline}
-                    className="px-3 py-1 bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold rounded shadow-sm transition-colors cursor-pointer"
-                  >
-                    Update Suggested
-                  </button>
                 </div>
                 <button
-                  onClick={() => setSelectedAssignmentIds([])}
-                  className="text-xs text-slate-500 hover:text-slate-700 font-semibold cursor-pointer ml-2 border border-slate-300 bg-white px-2.5 py-1 rounded hover:bg-slate-50 transition-colors"
+                  onClick={handleBulkUpdateDeadlines}
+                  className="px-4 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold rounded-md shadow-sm transition-colors cursor-pointer"
+                >
+                  Update Deadlines
+                </button>
+                <button
+                  onClick={() => {
+                    setSelectedAssignmentIds([]);
+                    setBulkSubmissionDeadline('');
+                    setBulkSuggestedDeadline('');
+                  }}
+                  className="text-xs text-slate-500 hover:text-slate-700 font-semibold cursor-pointer border border-slate-300 bg-white px-3 py-1.5 rounded-md hover:bg-slate-50 transition-colors"
                 >
                   Clear
                 </button>
@@ -1146,6 +1153,7 @@ const Assignments = () => {
             selectedAssignmentIds={selectedAssignmentIds}
             onToggleSelect={toggleSelectAssignment}
             onToggleSelectAll={handleToggleSelectAll}
+            loading={loadingAssignments}
           />
 
           <AssignmentTable
@@ -1159,6 +1167,7 @@ const Assignments = () => {
             selectedAssignmentIds={selectedAssignmentIds}
             onToggleSelect={toggleSelectAssignment}
             onToggleSelectAll={handleToggleSelectAll}
+            loading={loadingAssignments}
           />
         </div>
       )}
