@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { FileText, Search, Save, CheckCircle } from 'lucide-react';
+import { FileText, Search, Save, CheckCircle, Eye, X, ShieldAlert, Lock } from 'lucide-react';
 import { API_BASE_URL } from '../../utils/config';
 
 const CollegeRecords = () => {
@@ -10,6 +10,7 @@ const CollegeRecords = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [savingId, setSavingId] = useState(null);
   const [successMsg, setSuccessMsg] = useState('');
+  const [selectedRecordForView, setSelectedRecordForView] = useState(null);
 
   const [suggestedMarks, setSuggestedMarks] = useState({});
 
@@ -68,11 +69,17 @@ const CollegeRecords = () => {
     }
   };
 
-  const filteredRecords = records.filter(r => 
-    r.studentId?.fullName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    r.studentId?.regdNo?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    r.subjectId?.subName?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredRecords = records.filter(r => {
+    if (!searchTerm.trim()) return true;
+    const term = searchTerm.toLowerCase().trim();
+    return (
+      (r.studentId?.fullName || '').toLowerCase().includes(term) ||
+      (r.studentId?.regdNo || '').toLowerCase().includes(term) ||
+      (r.subjectId?.subName || '').toLowerCase().includes(term) ||
+      (r.subjectId?.subCode || '').toLowerCase().includes(term) ||
+      (r.groupSubjectName || '').toLowerCase().includes(term)
+    );
+  });
 
   return (
     <div className="p-4 sm:p-6 bg-slate-50 w-full animate-fade-in">
@@ -103,11 +110,11 @@ const CollegeRecords = () => {
 
       <div className="bg-white rounded-md border border-slate-200 shadow-sm overflow-hidden">
         <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-          <div className="relative w-72">
+          <div className="relative w-80">
             <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input 
               type="text" 
-              placeholder="Search by student or subject..." 
+              placeholder="Search by student, roll no, or subject (e.g. English, Maths)..." 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-teal-500 outline-none"
@@ -115,26 +122,27 @@ const CollegeRecords = () => {
           </div>
         </div>
 
-        <div className="w-full relative">
+        <div className="w-full relative overflow-x-auto">
           <table className="w-full text-sm text-left">
             <thead className="sticky top-0 z-10 bg-teal-700 text-white font-semibold">
               <tr>
-                <th className="px-4 py-3">Student Name</th>
-                <th className="px-4 py-3">Regd No.</th>
-                <th className="px-4 py-3">Subject</th>
-                <th className="px-4 py-3 text-center">Status</th>
-                <th className="px-4 py-3 text-center">Suggested Marks Deadline</th>
-                <th className="px-4 py-3 text-center w-48">Suggested Marks</th>
+                <th className="px-4 py-3 whitespace-nowrap">Student Name</th>
+                <th className="px-4 py-3 whitespace-nowrap">Regd No.</th>
+                <th className="px-4 py-3 whitespace-nowrap">Subject</th>
+                <th className="px-4 py-3 text-center whitespace-nowrap">Status</th>
+                <th className="px-4 py-3 text-center whitespace-nowrap">Record PDF</th>
+                <th className="px-4 py-3 text-center whitespace-nowrap">Suggested Marks Deadline</th>
+                <th className="px-4 py-3 text-center w-48 whitespace-nowrap">Suggested Marks</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="6" className="px-4 py-8 text-center text-slate-500">Loading records...</td>
+                  <td colSpan="7" className="px-4 py-8 text-center text-slate-500">Loading records...</td>
                 </tr>
               ) : filteredRecords.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="px-4 py-8 text-center text-slate-500">No submitted records found.</td>
+                  <td colSpan="7" className="px-4 py-8 text-center text-slate-500">No submitted records found.</td>
                 </tr>
               ) : (
                 filteredRecords.map((record) => (
@@ -151,6 +159,20 @@ const CollegeRecords = () => {
                       }`}>
                         {record.status}
                       </span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      {record.filePath ? (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedRecordForView(record)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-teal-50 hover:bg-teal-600 text-teal-700 hover:text-white border border-teal-200 hover:border-teal-600 rounded-md text-xs font-semibold transition-all cursor-pointer shadow-sm"
+                          title="View Document (Download Disabled)"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
+                      ) : (
+                        <span className="text-slate-400 italic text-xs">No File</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-center">
                       {(() => {
@@ -179,16 +201,10 @@ const CollegeRecords = () => {
                         const hasError = val !== '' && Number(val) > maxMarks;
                         
                         let isDeadlinePassed = false;
-                        let deadlineFormatted = '';
                         if (record.suggestedMarksDeadline) {
                           const deadlineDate = new Date(record.suggestedMarksDeadline);
                           deadlineDate.setHours(23, 59, 59, 999);
                           isDeadlinePassed = new Date() > deadlineDate;
-                          deadlineFormatted = new Date(record.suggestedMarksDeadline).toLocaleDateString('en-GB', {
-                            day: '2-digit',
-                            month: '2-digit',
-                            year: 'numeric'
-                          });
                         }
                         
                         return (
@@ -210,7 +226,7 @@ const CollegeRecords = () => {
                               <button
                                 onClick={() => handleSaveMarks(record._id)}
                                 disabled={savingId === record._id || record.status === 'Evaluated' || hasError || isDeadlinePassed}
-                                className="p-1.5 bg-teal-600 text-white rounded hover:bg-teal-700 disabled:opacity-50 transition-colors disabled:cursor-not-allowed"
+                                className="p-1.5 bg-teal-600 text-white rounded hover:bg-teal-700 disabled:opacity-50 transition-colors disabled:cursor-not-allowed cursor-pointer"
                                 title="Save Suggested Marks"
                               >
                                 {savingId === record._id ? (
@@ -236,6 +252,80 @@ const CollegeRecords = () => {
           </table>
         </div>
       </div>
+
+      {/* --- SECURE RECORD VIEW MODAL (NO DOWNLOAD) --- */}
+      {selectedRecordForView && (
+        <div 
+          className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 animate-fadeIn"
+          onClick={() => setSelectedRecordForView(null)}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <div 
+            className="bg-white rounded-xl shadow-2xl w-full max-w-5xl h-[88vh] flex flex-col overflow-hidden border border-slate-200"
+            onClick={(e) => e.stopPropagation()}
+            onContextMenu={(e) => e.preventDefault()}
+          >
+            {/* Modal Header */}
+            <div className="px-5 py-3.5 bg-slate-800 text-white flex items-center justify-between border-b border-slate-700 select-none">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-teal-600/30 text-teal-300 rounded-lg">
+                  <FileText className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-base text-slate-100 flex items-center gap-2">
+                    {selectedRecordForView.studentId?.fullName}
+                    <span className="text-xs font-normal text-slate-300 font-mono">
+                      ({selectedRecordForView.studentId?.regdNo})
+                    </span>
+                  </h3>
+                  <p className="text-xs text-teal-400 font-medium">
+                    {selectedRecordForView.groupSubjectName || selectedRecordForView.subjectId?.subName}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <div className="hidden sm:flex items-center gap-1.5 text-xs text-amber-300 bg-amber-950/60 px-3 py-1 rounded-full border border-amber-500/30">
+                  <ShieldAlert className="h-3.5 w-3.5 text-amber-400" />
+                  <span>View Only • Download Disabled</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedRecordForView(null)}
+                  className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
+                  title="Close Viewer"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body: Secure PDF View Frame */}
+            <div className="flex-1 bg-slate-900 relative w-full h-full select-none" onContextMenu={(e) => e.preventDefault()}>
+              <iframe
+                src={`${API_BASE_URL}${selectedRecordForView.filePath}#toolbar=0&navpanes=0&scrollbar=1`}
+                title="Student Record Document"
+                className="w-full h-full border-0"
+                onContextMenu={(e) => e.preventDefault()}
+              />
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-5 py-3 bg-slate-100 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500 select-none">
+              <span className="flex items-center gap-1.5">
+                <Lock className="h-3.5 w-3.5 text-teal-600" /> Protected View — Official Record for Evaluation Review
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelectedRecordForView(null)}
+                className="px-4 py-1.5 bg-slate-700 hover:bg-slate-800 text-white font-medium rounded-md transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
