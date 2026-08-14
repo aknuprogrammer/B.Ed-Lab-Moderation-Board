@@ -141,9 +141,11 @@ exports.login = async ({ regdNo, password, email, faceDescriptor, latitude, long
     }
     distance = Math.sqrt(distance);
 
-    // Threshold: 0.55 is a good balance for face-api.js
-    if (distance > 0.55) {
-      throw new AppError(`Face authentication failed.`, 401);
+    console.log(`[Face Auth] User: ${user.fullName || user.regdNo} (${user.role}) - Match Distance: ${distance.toFixed(4)}`);
+
+    // Standard recommended threshold for face-api.js ResNet-34 is 0.60
+    if (distance > 0.60) {
+      throw new AppError(`Face authentication failed. Match score (${distance.toFixed(2)}) exceeded threshold. Please ensure good lighting and face the camera directly.`, 401);
     }
   }
 

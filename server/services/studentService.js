@@ -80,6 +80,15 @@ exports.submitAssignment = async ({ assignmentId, file, user, note, extractedTex
   let serverExtractedText = '';
   try {
     const dataBuffer = fs.readFileSync(file.path);
+
+    // Inspect Certificate Page (Pages 1 & 2) for digitally superimposed signature overlays or digital annotations
+    const { inspectPdfSignatureLiveness } = require('../utils/pdfInspector');
+    const inspectionResult = await inspectPdfSignatureLiveness(dataBuffer);
+    if (inspectionResult.isDigitallySignedImageOverlay) {
+      if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+      throw new AppError(inspectionResult.reason || 'Digitally pasted signature image overlay detected on Certificate Page. Please scan and upload the physical paper record signed by your Principal.', 400);
+    }
+
     const pdfData = await pdfParse(dataBuffer);
     
     serverExtractedText = pdfData.text.replace(/\s+/g, ' ').toUpperCase(); 

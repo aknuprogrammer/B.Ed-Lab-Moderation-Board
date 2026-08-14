@@ -600,7 +600,7 @@ const Login = () => {
                 Please look at the camera to verify your identity.
               </p>
               
-              <FaceScanner onCapture={handleFaceCaptured} mode="verify" />
+              <FaceScanner onCapture={handleFaceCaptured} mode="verify" role={userRole} />
               
               <button
                 onClick={() => {

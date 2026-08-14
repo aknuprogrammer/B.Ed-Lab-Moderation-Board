@@ -30,7 +30,7 @@ window.fetch = async (input, init) => {
   return originalFetch(input, init);
 };
 
-// Global cache for model loading promise (now unified to use tinyFaceDetector on all devices)
+// Global cache for model loading promise
 let modelsLoadingPromise = null;
 const loadFaceApiModels = () => {
   if (!modelsLoadingPromise) {
@@ -45,26 +45,24 @@ const loadFaceApiModels = () => {
 };
 
 const FaceScanner = ({ onCapture, mode = 'enroll', regdNo, email, role, collegeId }) => {
-  // Detect if browser is on mobile to apply hardware-optimized configuration
   const isMobile = useRef(/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent)).current;
 
   const videoRef = useRef(null);
-  const canvasRef = useRef(null);
   const streamRef = useRef(null);
   const isScanningRef = useRef(false);
   const scanLoopRef = useRef(null);
 
-  // Helper to get device-specific face detector options (optimized input size for fast CPU inference)
   const getDetectorOptions = () => {
     return new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.3 });
   };
 
-  // State machine refs for recursive loop stability (prevents stale closures)
+  // State Machine refs
   const livenessStateRef = useRef('CALIBRATING');
   const baselineOpenEARRef = useRef(null);
   const baselineFramesRef = useRef([]);
   const lastCloseTimeRef = useRef(0);
   const calibrationTimeRef = useRef(0);
+  const faceDetectedSinceRef = useRef(null);
 
   const [isModelLoaded, setIsModelLoaded] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
@@ -72,17 +70,13 @@ const FaceScanner = ({ onCapture, mode = 'enroll', regdNo, email, role, collegeI
   const [error, setError] = useState('');
   const [scanning, setScanning] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(30);
+  const [timeLeft, setTimeLeft] = useState(60);
 
-  // Advanced Liveness UX States
+  // UX & Liveness States
   const [faceDetected, setFaceDetected] = useState(false);
   const [livenessProgress, setLivenessProgress] = useState(0);
   const [currentEAR, setCurrentEAR] = useState(null);
-  const [baselineEARState, setBaselineEARState] = useState(null);
-
-  // UX Fallback states for manual capture and slow blink responses
   const [showManualFallback, setShowManualFallback] = useState(false);
-  const faceDetectedSinceRef = useRef(null);
 
   useEffect(() => {
     const loadModels = async () => {
@@ -146,7 +140,6 @@ const FaceScanner = ({ onCapture, mode = 'enroll', regdNo, email, role, collegeI
       canvas.width = video.videoWidth || 320;
       canvas.height = video.videoHeight || 240;
       const ctx = canvas.getContext('2d');
-      // Draw video mirrored (as seen by the user)
       ctx.translate(canvas.width, 0);
       ctx.scale(-1, 1);
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -170,7 +163,6 @@ const FaceScanner = ({ onCapture, mode = 'enroll', regdNo, email, role, collegeI
         throw new Error('Video stream is no longer available.');
       }
 
-      // Extract high-quality face descriptor only once on liveness success
       const detectorOptions = getDetectorOptions();
       const finalDetection = await faceapi
         .detectSingleFace(videoRef.current, detectorOptions)
@@ -213,6 +205,12 @@ const FaceScanner = ({ onCapture, mode = 'enroll', regdNo, email, role, collegeI
     }
   };
 
+  const handleManualCapture = () => {
+    if (!faceDetected || success) return;
+    setStatus('Capturing face...');
+    processSuccessfulCapture();
+  };
+
   const startScanning = () => {
     if (!isModelLoaded || !cameraActive || !videoRef.current) return;
     
@@ -222,23 +220,21 @@ const FaceScanner = ({ onCapture, mode = 'enroll', regdNo, email, role, collegeI
     setStatus('Looking for face...');
     setLivenessProgress(10);
     setFaceDetected(false);
+    setShowManualFallback(false);
+    faceDetectedSinceRef.current = null;
     
     let noFaceCount = 0;
     
-    // Reset state machine refs
     livenessStateRef.current = 'CALIBRATING';
     baselineOpenEARRef.current = null;
     baselineFramesRef.current = [];
     lastCloseTimeRef.current = 0;
     calibrationTimeRef.current = 0;
 
-    setBaselineEARState(null);
     setCurrentEAR(null);
-    setShowManualFallback(false);
-    faceDetectedSinceRef.current = null;
 
     const startTime = Date.now();
-    setTimeLeft(30);
+    setTimeLeft(60);
 
     const scanFrame = async () => {
       try {
@@ -247,18 +243,17 @@ const FaceScanner = ({ onCapture, mode = 'enroll', regdNo, email, role, collegeI
 
         const elapsedMs = Date.now() - startTime;
         const elapsedSec = Math.floor(elapsedMs / 1000);
-        setTimeLeft(Math.max(0, 30 - elapsedSec));
+        setTimeLeft(Math.max(0, 60 - elapsedSec));
 
-        if (elapsedSec > 30) {
+        if (elapsedSec > 60) {
           setScanning(false);
           isScanningRef.current = false;
-          setError('Scanning timed out. Please try again.');
-          setStatus('Verification failed due to timeout.');
+          setError('Scanning timed out. Tap "Try Again" or use "Capture Face".');
+          setStatus('Verification timed out.');
           stopCamera();
           return;
         }
 
-        // Run face detector + landmarks (descriptor skipped during loop to maximize performance)
         const detectorOptions = getDetectorOptions();
         const detection = await faceapi
           .detectSingleFace(videoRef.current, detectorOptions)
@@ -270,25 +265,21 @@ const FaceScanner = ({ onCapture, mode = 'enroll', regdNo, email, role, collegeI
             setFaceDetected(false);
             setStatus('No face detected. Please look directly at the camera.');
             setLivenessProgress(10);
+            setShowManualFallback(false);
+            faceDetectedSinceRef.current = null;
             
-            // Reset calibration state if face is lost
             livenessStateRef.current = 'CALIBRATING';
             baselineOpenEARRef.current = null;
             baselineFramesRef.current = [];
-            setBaselineEARState(null);
             setCurrentEAR(null);
-            
-            // Reset manual capture variables
-            faceDetectedSinceRef.current = null;
-            setShowManualFallback(false);
           }
         } else {
           noFaceCount = 0;
           setFaceDetected(true);
-          
+
           if (faceDetectedSinceRef.current === null) {
             faceDetectedSinceRef.current = Date.now();
-          } else if (Date.now() - faceDetectedSinceRef.current > 3500) {
+          } else if (Date.now() - faceDetectedSinceRef.current > 2500) {
             setShowManualFallback(true);
           }
 
@@ -302,7 +293,7 @@ const FaceScanner = ({ onCapture, mode = 'enroll', regdNo, email, role, collegeI
           
           setCurrentEAR(avgEAR);
 
-          // Phase 1: Calibrate open eyes baseline (collect 6 frames)
+          // Calibrate baseline
           if (livenessStateRef.current === 'CALIBRATING') {
             setStatus('Calibrating... Keep eyes open.');
             if (avgEAR > 0.12 && avgEAR < 0.40) {
@@ -310,24 +301,18 @@ const FaceScanner = ({ onCapture, mode = 'enroll', regdNo, email, role, collegeI
               setLivenessProgress(15 + baselineFramesRef.current.length * 5);
               if (baselineFramesRef.current.length >= 6) {
                 const sum = baselineFramesRef.current.reduce((a, b) => a + b, 0);
-                const baseline = sum / baselineFramesRef.current.length;
-                baselineOpenEARRef.current = baseline;
-                setBaselineEARState(baseline);
+                baselineOpenEARRef.current = sum / baselineFramesRef.current.length;
                 livenessStateRef.current = 'WAIT_CLOSE';
                 calibrationTimeRef.current = Date.now();
                 setStatus('Please blink naturally to verify.');
                 setLivenessProgress(50);
               }
             }
-          }
-          // Phase 2: Wait for eyes to close (blink start)
-          else if (livenessStateRef.current === 'WAIT_CLOSE') {
-            // Self-Healing Loop: Recalibrate if stuck waiting for close > 5 seconds
+          } else if (livenessStateRef.current === 'WAIT_CLOSE') {
             if (Date.now() - calibrationTimeRef.current > 5000) {
               livenessStateRef.current = 'CALIBRATING';
               baselineOpenEARRef.current = null;
               baselineFramesRef.current = [];
-              setBaselineEARState(null);
               setStatus('Recalibrating camera...');
               setLivenessProgress(10);
               scanLoopRef.current = setTimeout(scanFrame, isMobile ? 250 : 150);
@@ -337,7 +322,6 @@ const FaceScanner = ({ onCapture, mode = 'enroll', regdNo, email, role, collegeI
             setStatus('Please blink naturally to verify.');
             setLivenessProgress(60);
             
-            // Check for closed eyes: 18% reduction from open eye baseline (highly sensitive but photo-proof)
             const closeThreshold = baselineOpenEARRef.current * 0.82;
             if (avgEAR < closeThreshold) {
               livenessStateRef.current = 'WAIT_OPEN';
@@ -345,17 +329,13 @@ const FaceScanner = ({ onCapture, mode = 'enroll', regdNo, email, role, collegeI
               setStatus('Blink detected. Processing...');
               setLivenessProgress(80);
             }
-          }
-          // Phase 3: Wait for eyes to open (blink end)
-          else if (livenessStateRef.current === 'WAIT_OPEN') {
-            // Stuck prevention: If eyes don't reopen within 1.5s, go back to waiting for close
+          } else if (livenessStateRef.current === 'WAIT_OPEN') {
             if (Date.now() - lastCloseTimeRef.current > 1500) {
               livenessStateRef.current = 'WAIT_CLOSE';
-              calibrationTimeRef.current = Date.now(); // Reset baseline timer
+              calibrationTimeRef.current = Date.now();
               setStatus('Please blink naturally.');
               setLivenessProgress(50);
             } else {
-              // Check for reopened eyes: recovered to at least 88% of open baseline
               const openThreshold = baselineOpenEARRef.current * 0.88;
               if (avgEAR >= openThreshold) {
                 livenessStateRef.current = 'SUCCESS';
@@ -367,7 +347,6 @@ const FaceScanner = ({ onCapture, mode = 'enroll', regdNo, email, role, collegeI
           }
         }
         
-        // Polling interval: faster for active blink detection, slower when no face is found
         const delay = detection 
           ? (isMobile ? 100 : 60) 
           : (isMobile ? 250 : 150);
@@ -391,12 +370,6 @@ const FaceScanner = ({ onCapture, mode = 'enroll', regdNo, email, role, collegeI
     }
   }, [isModelLoaded, cameraActive]);
 
-  const handleManualCapture = () => {
-    if (!faceDetected || success) return;
-    setStatus('Capturing face...');
-    processSuccessfulCapture();
-  };
-
   const handleRetry = () => {
     setError('');
     setSuccess(false);
@@ -405,7 +378,6 @@ const FaceScanner = ({ onCapture, mode = 'enroll', regdNo, email, role, collegeI
     setFaceDetected(false);
     setLivenessProgress(0);
     setCurrentEAR(null);
-    setBaselineEARState(null);
     setShowManualFallback(false);
     faceDetectedSinceRef.current = null;
     if (scanLoopRef.current) clearTimeout(scanLoopRef.current);
@@ -486,7 +458,7 @@ const FaceScanner = ({ onCapture, mode = 'enroll', regdNo, email, role, collegeI
         </p>
 
         {scanning && !error && !success && faceDetected && (
-          <div className="mt-2 w-28 bg-slate-100 h-1.5 rounded-full overflow-hidden mx-auto border border-slate-200/50">
+          <div className="mt-2 w-32 bg-slate-100 h-1.5 rounded-full overflow-hidden mx-auto border border-slate-200/50">
             <div 
               className="bg-teal-500 h-full transition-all duration-300 rounded-full"
               style={{ width: `${livenessProgress}%` }}
@@ -499,10 +471,6 @@ const FaceScanner = ({ onCapture, mode = 'enroll', regdNo, email, role, collegeI
             <p className="text-[11px] text-rose-500 font-bold tracking-wider">
               Time Left: 00:{timeLeft.toString().padStart(2, '0')}
             </p>
-            {/* Real-time Telemetry for Easy Testing & Tuning */}
-            <p className="text-[10px] text-slate-400 mt-1 font-mono">
-              Base EAR: {baselineEARState ? baselineEARState.toFixed(3) : 'Calibrating...'} | Current: {currentEAR ? currentEAR.toFixed(3) : '0.000'}
-            </p>
           </div>
         )}
       </div>
@@ -511,7 +479,7 @@ const FaceScanner = ({ onCapture, mode = 'enroll', regdNo, email, role, collegeI
         <button
           type="button"
           onClick={handleRetry}
-          className="mt-2 text-xs font-bold text-slate-600 hover:text-slate-900 underline underline-offset-2 transition-colors"
+          className="mt-2 text-xs font-bold text-slate-600 hover:text-slate-900 underline underline-offset-2 transition-colors cursor-pointer"
         >
           Try Again
         </button>
@@ -519,7 +487,7 @@ const FaceScanner = ({ onCapture, mode = 'enroll', regdNo, email, role, collegeI
 
       {!success && !error && isModelLoaded && (
         <div className="flex flex-col items-center w-full space-y-3">
-          <div className="flex items-center space-x-2 px-6 py-2 bg-slate-100 border border-slate-200/80 text-slate-600 rounded-full text-xs font-semibold shadow-sm select-none">
+          <div className="flex items-center space-x-2 px-4 py-1.5 bg-slate-100 border border-slate-200/80 text-slate-700 rounded-full text-xs font-semibold shadow-sm select-none">
             {faceDetected ? (
               <>
                 <Camera className="h-4 w-4 text-teal-600 animate-pulse" />
@@ -532,7 +500,8 @@ const FaceScanner = ({ onCapture, mode = 'enroll', regdNo, email, role, collegeI
               </>
             )}
           </div>
-          
+
+          {/* Universal Manual Capture Button */}
           {faceDetected && (
             <div className="flex flex-col items-center space-y-2 w-full px-4 animate-fadeIn">
               <button
@@ -546,10 +515,10 @@ const FaceScanner = ({ onCapture, mode = 'enroll', regdNo, email, role, collegeI
               
               {showManualFallback ? (
                 <p className="text-[10px] text-rose-500 font-semibold tracking-wide max-w-[240px] text-center leading-relaxed animate-pulse">
-                  Blink not detected? Tap the button above to capture manually.
+                  Blink taking too long? Tap the button above to capture manually.
                 </p>
               ) : (
-                <p className="text-[10px] text-slate-400 font-medium tracking-wide max-w-[220px] text-center leading-relaxed">
+                <p className="text-[10px] text-slate-400 font-medium tracking-wide max-w-[240px] text-center leading-relaxed">
                   The scanner automatically completes when you blink.
                 </p>
               )}
