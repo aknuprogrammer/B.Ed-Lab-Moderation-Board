@@ -5,6 +5,17 @@ const Paper = require('../../models/Paper');
 const emailService = require('../emailService');
 const AppError = require('../../utils/AppError');
 
+const getSemLevel = (sem) => {
+  if (!sem) return 1;
+  const s = String(sem).trim().toUpperCase();
+  if (s === '1-1' || s === '1' || s === 'I' || s.includes('SEM 1') || s.includes('SEMESTER 1') || s.includes('SEMESTER I')) return 1;
+  if (s === '1-2' || s === '2' || s === 'II' || s.includes('SEM 2') || s.includes('SEMESTER 2') || s.includes('SEMESTER II')) return 2;
+  if (s === '2-1' || s === '3' || s === 'III' || s.includes('SEM 3') || s.includes('SEMESTER 3') || s.includes('SEMESTER III')) return 3;
+  if (s === '2-2' || s === '4' || s === 'IV' || s.includes('SEM 4') || s.includes('SEMESTER 4') || s.includes('SEMESTER IV')) return 4;
+  const num = parseInt(s, 10);
+  return isNaN(num) ? 1 : num;
+};
+
 exports.getAssignmentFilters = async () => {
   const colleges = await College.find().select('collegeCode collegeName');
   const courses = await Course.find().select('courseCode courseName');
@@ -48,7 +59,6 @@ exports.getAssignmentData = async ({ collegeCode, courseCode, semester, groupCod
   }
 
   if (semester) {
-    studentQuery.currentSemester = semester;
     shouldFetchStudents = true;
   }
 
@@ -61,13 +71,18 @@ exports.getAssignmentData = async ({ collegeCode, courseCode, semester, groupCod
       const fees = await BacklogFee.find(feeQuery).lean();
       const backlogRegdNos = [...new Set(fees.map(f => f.regdNo))];
 
-      studentQuery.regdNo = { $in: backlogRegdNos };
-      // Override currentSemester filter since backlogs belong to past semesters
-      delete studentQuery.currentSemester;
+      const backlogQuery = { ...studentQuery, regdNo: { $in: backlogRegdNos } };
+      delete backlogQuery.currentSemester;
 
-      students = await User.find(studentQuery).select('fullName regdNo _id groupId currentSemester').populate('groupId');
+      students = await User.find(backlogQuery).select('fullName regdNo _id groupId currentSemester').populate('groupId');
     } else {
-      students = await User.find(studentQuery).select('fullName regdNo _id groupId currentSemester').populate('groupId');
+      const fetchedStudents = await User.find(studentQuery).select('fullName regdNo _id groupId currentSemester').populate('groupId');
+      if (semester) {
+        const reqSemLevel = getSemLevel(semester);
+        students = fetchedStudents.filter(s => getSemLevel(s.currentSemester) === reqSemLevel);
+      } else {
+        students = fetchedStudents;
+      }
     }
   }
 

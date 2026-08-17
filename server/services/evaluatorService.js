@@ -57,6 +57,12 @@ exports.getAssignedRecords = async (evaluatorId) => {
     return String(record.subjectId.semester) === String(record.studentId.currentSemester);
   });
 
+  filteredRecords.sort((a, b) => {
+    const regA = String(a.studentId?.regdNo || '');
+    const regB = String(b.studentId?.regdNo || '');
+    return regA.localeCompare(regB, undefined, { numeric: true, sensitivity: 'base' });
+  });
+
   return filteredRecords;
 };
 

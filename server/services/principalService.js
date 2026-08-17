@@ -202,7 +202,7 @@ exports.getPendingStudents = async (collegeId, { courseId, semester }) => {
   });
 
   const pendingStudentsList = Object.values(studentPendingMap).sort((a, b) => 
-    (a.regdNo || '').localeCompare(b.regdNo || '')
+    String(a.regdNo || '').localeCompare(String(b.regdNo || ''), undefined, { numeric: true, sensitivity: 'base' })
   );
 
   return {
@@ -228,6 +228,12 @@ exports.getCollegeRecords = async (collegeId) => {
     if (asg.mode === 'Supply') return true;
     if (!asg.studentId || !asg.subjectId) return false;
     return String(asg.subjectId.semester) === String(asg.studentId.currentSemester);
+  });
+
+  filteredAssignments.sort((a, b) => {
+    const regA = String(a.studentId?.regdNo || '');
+    const regB = String(b.studentId?.regdNo || '');
+    return regA.localeCompare(regB, undefined, { numeric: true, sensitivity: 'base' });
   });
 
   return filteredAssignments;

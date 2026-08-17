@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { Routes, Route, Link, useLocation, useNavigate } from 'react-router-dom';
-import { Users, BookOpen, School, Database, LogOut, CheckSquare, ClipboardList, Bell, ChevronLeft, ChevronRight, Menu, X, LayoutDashboard } from 'lucide-react';
+import { Users, BookOpen, School, Database, LogOut, CheckSquare, ClipboardList, Bell, ChevronLeft, ChevronRight, Menu, X, LayoutDashboard, ClipboardCheck } from 'lucide-react';
 import Overview from './Overview';
 import MasterData from './MasterData';
 import Assignments from './Assignments';
 import Evaluators from './Evaluators';
 import EvaluatedRecords from './EvaluatedRecords';
+import StudentEvaluationReport from './StudentEvaluationReport';
 import Notifications from './Notifications';
 import SessionLogs from './SessionLogs';
 import SessionTimer from '../../components/SessionTimer';
@@ -42,8 +43,13 @@ const Dashboard = () => {
     { name: 'Assign Records', path: '/admin/assignments', icon: CheckSquare },
     { name: 'Evaluators', path: '/admin/evaluators', icon: ClipboardList },
     { name: 'Evaluated Records', path: '/admin/evaluated-records', icon: BookOpen },
-    { name: 'Notifications', path: '/admin/notifications', icon: Bell },
   ];
+
+  if (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN' || user.role === 'SYSTEM_ADMIN') {
+    navItems.push({ name: 'Evaluation Report', path: '/admin/evaluation-report', icon: ClipboardCheck });
+  }
+
+  navItems.push({ name: 'Notifications', path: '/admin/notifications', icon: Bell });
 
   if (user.role === 'SYSTEM_ADMIN') {
     navItems.push({ name: 'Session Logs', path: '/admin/session-logs', icon: ShieldAlert });
@@ -143,6 +149,7 @@ const Dashboard = () => {
           <Route path="/assignments" element={<Assignments />} />
           <Route path="/evaluators" element={<Evaluators />} />
           <Route path="/evaluated-records" element={<EvaluatedRecords />} />
+          <Route path="/evaluation-report" element={<StudentEvaluationReport />} />
           <Route path="/notifications" element={<Notifications />} />
           {user.role === 'SYSTEM_ADMIN' && (
             <Route path="/session-logs" element={<SessionLogs />} />

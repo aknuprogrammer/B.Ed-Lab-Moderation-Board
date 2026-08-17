@@ -154,3 +154,34 @@ exports.approveAllPapers = async (req, res) => {
     res.status(statusCode).json({ message: error.message });
   }
 };
+
+exports.downloadBulkRecordsZip = async (req, res) => {
+  try {
+    const bulkDownloadService = require('../services/bulkDownloadService');
+    await bulkDownloadService.streamBulkRecordsZip(req.query, res);
+  } catch (error) {
+    console.error('BOS bulk zip error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ message: 'Failed to generate bulk zip file.' });
+    }
+  }
+};
+
+exports.purgeAssignmentRecords = async (req, res) => {
+  try {
+    const recordPurgeService = require('../services/admin/recordPurgeService');
+    const activityLogService = require('../services/admin/activityLogService');
+    const result = await recordPurgeService.purgeAssignmentRecords(req.body);
+
+    activityLogService.logActivity({
+      userId: req.user._id,
+      userRole: req.user.role,
+      actionType: 'PURGE_RECORDS_BOS',
+      details: { description: `BOS purged ${result.deletedCount} assignment records freeing ${result.freedSpaceMB} MB storage.` }
+    }).catch(err => console.error("Activity logging failed:", err));
+
+    res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ message: error.message });
+  }
+};

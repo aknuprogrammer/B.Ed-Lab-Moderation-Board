@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
-import { UploadCloud, CheckCircle, X, FileSpreadsheet, Plus, RefreshCw, ChevronLeft, ChevronRight, Edit2, Trash2, Eye, EyeOff, UserPlus, History, Activity } from 'lucide-react';
+import { UploadCloud, CheckCircle, X, FileSpreadsheet, Plus, RefreshCw, ChevronLeft, ChevronRight, Edit2, Trash2, Eye, EyeOff, UserPlus, History, Activity, RotateCcw, FileText } from 'lucide-react';
 
 import PromoteStudentsModal from './PromoteStudentsModal';
+import RecordFormatModal from '../../components/RecordFormatModal';
+import ConfirmModal from '../../components/ConfirmModal';
 import ActivityFeed from '../../components/ActivityFeed';
 import { downloadMasterDataTemplate } from '../../utils/exportUtils';
 
@@ -77,6 +79,19 @@ const TAB_CONFIG = {
       // { key: 'mobileNumber', header: 'Mobile Number'       },
       { key: 'collegeCode', header: 'College Code' },
       { key: 'groupCode', header: 'Group Code' },
+      {
+        key: 'isSetupComplete',
+        header: 'Face Status',
+        render: (val) => val ? (
+          <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-semibold rounded-full">
+            Registered
+          </span>
+        ) : (
+          <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 text-[11px] font-semibold rounded-full">
+            Pending Setup
+          </span>
+        )
+      },
     ],
   },
   papers: {
@@ -837,12 +852,79 @@ const MasterData = () => {
   const [searchQuery, setSearchQuery] = useState(''); // Global search state
   const [selectedSemesterFilter, setSelectedSemesterFilter] = useState('');
   const [showActivity, setShowActivity] = useState(false);
+  const [showRecordFormatModal, setShowRecordFormatModal] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const token = localStorage.getItem('token');
 
   const currentPage = pages[activeTab] || 1;
   const setPage = (p) => setPages(prev => ({ ...prev, [activeTab]: p }));
+
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    variant: 'danger',
+    confirmText: 'Confirm',
+    cancelText: 'Cancel',
+    isAlert: false,
+    loading: false,
+    onConfirm: null
+  });
+
+  const showAlert = (title, message, variant = 'info') => {
+    setConfirmModal({
+      isOpen: true,
+      title,
+      message,
+      variant,
+      isAlert: true,
+      loading: false,
+      onConfirm: () => setConfirmModal(prev => ({ ...prev, isOpen: false }))
+    });
+  };
+
+  const showConfirm = ({ title, message, variant = 'danger', confirmText = 'Confirm', onConfirm }) => {
+    setConfirmModal({
+      isOpen: true,
+      title,
+      message,
+      variant,
+      confirmText,
+      isAlert: false,
+      loading: false,
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, loading: true }));
+        try {
+          await onConfirm();
+        } finally {
+          setConfirmModal(prev => ({ ...prev, isOpen: false, loading: false }));
+        }
+      }
+    });
+  };
+
+  const handleResetFaceRegistration = (student) => {
+    const studentName = student.fullName || student.regdNo;
+    showConfirm({
+      title: 'Reset Face Registration',
+      message: `Are you sure you want to reset face registration for ${studentName} (${student.regdNo})?\n\nThe student's face data will be cleared and they can freshly register their face upon logging in.`,
+      variant: 'warning',
+      confirmText: 'Yes, Reset Face',
+      onConfirm: async () => {
+        try {
+          const res = await axios.post(`${API}/students/${student._id}/reset-registration`, {}, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          fetchTab('students', true);
+          setRefreshTrigger(prev => prev + 1);
+          showGlobalMessage(res.data.message || `Face registration reset for ${studentName}`);
+        } catch (err) {
+          showAlert('Reset Failed', err.response?.data?.message || 'Failed to reset student face registration', 'danger');
+        }
+      }
+    });
+  };
 
   const fetchTab = useCallback(async (tab, force = false) => {
     if (!force && tableData[tab]) return;
@@ -918,18 +1000,25 @@ const MasterData = () => {
     setRefreshTrigger(prev => prev + 1);
   };
 
-  const handleDelete = async (recordId) => {
-    if (!window.confirm('Are you sure you want to delete this record?')) return;
-    try {
-      await axios.delete(`${API}/record/${activeTab}/${recordId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      fetchTab(activeTab, true);
-      setRefreshTrigger(prev => prev + 1);
-      showGlobalMessage('Record deleted successfully!');
-    } catch (err) {
-      alert(err.response?.data?.message || 'Failed to delete record');
-    }
+  const handleDelete = (recordId) => {
+    showConfirm({
+      title: 'Delete Record',
+      message: 'Are you sure you want to delete this record? This action cannot be undone.',
+      variant: 'danger',
+      confirmText: 'Delete Record',
+      onConfirm: async () => {
+        try {
+          await axios.delete(`${API}/record/${activeTab}/${recordId}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          fetchTab(activeTab, true);
+          setRefreshTrigger(prev => prev + 1);
+          showGlobalMessage('Record deleted successfully!');
+        } catch (err) {
+          showAlert('Delete Failed', err.response?.data?.message || 'Failed to delete record', 'danger');
+        }
+      }
+    });
   };
 
   let cfg = TAB_CONFIG[activeTab];
@@ -996,13 +1085,22 @@ const MasterData = () => {
           <h1 className="text-2xl font-bold text-slate-900">Master Data Management</h1>
           <p className="text-slate-500 text-sm mt-0.5">Upload, manage, and edit foundational system data via Excel sheets.</p>
         </div>
-        <button
-          onClick={() => setShowActivity(true)}
-          className="flex items-center cursor-pointer gap-2 px-4 py-2 mt-1 bg-white border border-slate-200 shadow-sm rounded-md text-slate-700 hover:bg-slate-50 transition-colors text-sm font-medium sm:mr-[130px]"
-        >
-          <Activity className="h-4 w-4 text-teal-600" />
-          Activity History
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowRecordFormatModal(true)}
+            className="flex items-center cursor-pointer gap-2 px-4 py-2 mt-1 bg-teal-800 hover:bg-teal-900 text-white shadow-sm rounded-md text-sm font-medium transition-colors"
+          >
+            <FileText className="h-4 w-4 text-teal-200" />
+            View Record Format
+          </button>
+          <button
+            onClick={() => setShowActivity(true)}
+            className="flex items-center cursor-pointer gap-2 px-4 py-2 mt-1 bg-white border border-slate-200 shadow-sm rounded-md text-slate-700 hover:bg-slate-50 transition-colors text-sm font-medium sm:mr-[130px]"
+          >
+            <Activity className="h-4 w-4 text-teal-600" />
+            Activity History
+          </button>
+        </div>
       </div>
 
       {/* Global success banner */}
@@ -1203,6 +1301,15 @@ const MasterData = () => {
                                 {isExpanded ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                               </button>
                             )}
+                            {activeTab === 'students' && (
+                              <button
+                                onClick={() => handleResetFaceRegistration(row)}
+                                className="text-amber-500 hover:text-amber-700 hover:bg-amber-50 transition-colors cursor-pointer p-1.5 rounded-md mr-1"
+                                title="Reset Face Registration"
+                              >
+                                <RotateCcw className="h-4 w-4" />
+                              </button>
+                            )}
                             <button
                               onClick={() => setEditRecord(row)}
                               className="text-slate-400 hover:text-teal-600 transition-colors cursor-pointer p-1.5 rounded-md hover:bg-teal-50 mr-1"
@@ -1280,6 +1387,26 @@ const MasterData = () => {
           onSuccess={handleUploadSuccess}
         />
       )}
+
+      {/* Record Format Modal */}
+      <RecordFormatModal
+        isOpen={showRecordFormatModal}
+        onClose={() => setShowRecordFormatModal(false)}
+      />
+
+      {/* Dynamic Confirmation / Alert Modal */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={confirmModal.onConfirm}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        variant={confirmModal.variant}
+        confirmText={confirmModal.confirmText}
+        cancelText={confirmModal.cancelText}
+        isAlert={confirmModal.isAlert}
+        loading={confirmModal.loading}
+      />
 
       {/* Activity Feed Slide-over */}
       {showActivity && (

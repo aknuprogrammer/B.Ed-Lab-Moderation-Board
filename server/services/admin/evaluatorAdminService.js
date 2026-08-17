@@ -5,6 +5,17 @@ const emailService = require('../emailService');
 const AppError = require('../../utils/AppError');
 const bcrypt = require('bcryptjs');
 
+const getSemLevel = (sem) => {
+  if (!sem) return 1;
+  const s = String(sem).trim().toUpperCase();
+  if (s === '1-1' || s === '1' || s === 'I' || s.includes('SEM 1') || s.includes('SEMESTER 1') || s.includes('SEMESTER I')) return 1;
+  if (s === '1-2' || s === '2' || s === 'II' || s.includes('SEM 2') || s.includes('SEMESTER 2') || s.includes('SEMESTER II')) return 2;
+  if (s === '2-1' || s === '3' || s === 'III' || s.includes('SEM 3') || s.includes('SEMESTER 3') || s.includes('SEMESTER III')) return 3;
+  if (s === '2-2' || s === '4' || s === 'IV' || s.includes('SEM 4') || s.includes('SEMESTER 4') || s.includes('SEMESTER IV')) return 4;
+  const num = parseInt(s, 10);
+  return isNaN(num) ? 1 : num;
+};
+
 exports.createEvaluator = async ({ fullName, email, password }) => {
   const existing = await User.findOne({ regdNo: email });
   if (existing) throw new AppError('Evaluator already exists', 400);
@@ -119,6 +130,14 @@ exports.assignSubjects = async ({ studentIds, subjectIds, pagesRequired, academi
     for (const subject of targetSubjects) {
       let belongsToMe = true;
       let assignedGroupName = '';
+
+      const studentSemLevel = getSemLevel(student.currentSemester);
+      const subjectSemLevel = getSemLevel(subject.semester);
+
+      // Skip past-semester subjects for promoted students in regular mode
+      if (!isBacklog && subjectSemLevel < studentSemLevel) {
+        belongsToMe = false;
+      }
 
       // If backlog, only allocate if they failed or missed it
       if (isBacklog) {

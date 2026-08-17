@@ -1,10 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Users, BookOpen, AlertCircle, CheckCircle, Filter, Edit, Download, Upload, RefreshCw, Search, X, Activity } from 'lucide-react';
+import { Users, BookOpen, AlertCircle, CheckCircle, Filter, Edit, Download, Upload, RefreshCw, Search, X, Activity, FileText } from 'lucide-react';
 import axios from 'axios';
 import SearchableDropdown from '../../components/SearchableDropdown';
 import { downloadAssignmentScoresXlsx } from '../../utils/exportUtils';
 import { API_BASE_URL } from '../../utils/config';
 import ActivityFeed from '../../components/ActivityFeed';
+import RecordFormatModal from '../../components/RecordFormatModal';
+import ConfirmModal from '../../components/ConfirmModal';
 
 /* ── Pagination component ── */
 const Pagination = ({ total, page, onPage, pageSize = 10 }) => {
@@ -291,7 +293,28 @@ const Assignments = () => {
 
   const [mode, setMode] = useState('Regular');
   const [showActivity, setShowActivity] = useState(false);
+  const [showRecordFormatModal, setShowRecordFormatModal] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    variant: 'info',
+    isAlert: true,
+    onConfirm: null
+  });
+
+  const showAlert = (title, message, variant = 'warning') => {
+    setConfirmModal({
+      isOpen: true,
+      title,
+      message,
+      variant,
+      isAlert: true,
+      onConfirm: () => setConfirmModal(prev => ({ ...prev, isOpen: false }))
+    });
+  };
 
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploadSemester, setUploadSemester] = useState('');
@@ -639,15 +662,15 @@ const Assignments = () => {
 
   const handleBulkUpdateDeadlines = async () => {
     if (!bulkSubmissionDeadline && !bulkSuggestedDeadline) {
-      alert("Please select at least one deadline (Submission Deadline or Suggested Marks Deadline) to update.");
+      showAlert("Missing Selection", "Please select at least one deadline (Submission Deadline or Suggested Marks Deadline) to update.", "warning");
       return;
     }
     if (bulkSubmissionDeadline && !/^\d{4}-\d{2}-\d{2}$/.test(bulkSubmissionDeadline)) {
-      alert("Invalid date format for Submission Deadline. Please use YYYY-MM-DD.");
+      showAlert("Invalid Date Format", "Invalid date format for Submission Deadline. Please use YYYY-MM-DD.", "warning");
       return;
     }
     if (bulkSuggestedDeadline && !/^\d{4}-\d{2}-\d{2}$/.test(bulkSuggestedDeadline)) {
-      alert("Invalid date format for Suggested Marks Deadline. Please use YYYY-MM-DD.");
+      showAlert("Invalid Date Format", "Invalid date format for Suggested Marks Deadline. Please use YYYY-MM-DD.", "warning");
       return;
     }
     try {
@@ -697,13 +720,22 @@ const Assignments = () => {
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Manage Assignments</h1>
           <p className="text-slate-500 text-sm mt-0.5">Generate subject assignments for students, handle backlogs, and view all records.</p>
         </div>
-        <button
-          onClick={() => setShowActivity(true)}
-          className="flex items-center cursor-pointer gap-2 px-4 py-2 mt-1 bg-white border border-slate-200 shadow-sm rounded-md text-slate-700 hover:bg-slate-50 transition-colors text-sm font-medium sm:mr-[130px]"
-        >
-          <Activity className="h-4 w-4 text-teal-600" />
-          Activity History
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowRecordFormatModal(true)}
+            className="flex items-center cursor-pointer gap-2 px-4 py-2 mt-1 bg-teal-800 hover:bg-teal-900 text-white shadow-sm rounded-md text-sm font-medium transition-colors"
+          >
+            <FileText className="h-4 w-4 text-teal-200" />
+            View Record Format
+          </button>
+          <button
+            onClick={() => setShowActivity(true)}
+            className="flex items-center cursor-pointer gap-2 px-4 py-2 mt-1 bg-white border border-slate-200 shadow-sm rounded-md text-slate-700 hover:bg-slate-50 transition-colors text-sm font-medium sm:mr-[130px]"
+          >
+            <Activity className="h-4 w-4 text-teal-600" />
+            Activity History
+          </button>
+        </div>
       </div>
 
       <div className="flex overflow-x-auto elegant-scrollbar border-b border-slate-200 mb-6 whitespace-nowrap">
@@ -1232,6 +1264,26 @@ const Assignments = () => {
           </div>
         </div>
       )}
+
+      {/* Record Format Modal */}
+      <RecordFormatModal
+        isOpen={showRecordFormatModal}
+        onClose={() => setShowRecordFormatModal(false)}
+      />
+
+      {/* Dynamic Confirm / Alert Modal */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={confirmModal.onConfirm}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        variant={confirmModal.variant}
+        confirmText={confirmModal.confirmText}
+        cancelText={confirmModal.cancelText}
+        isAlert={confirmModal.isAlert}
+        loading={confirmModal.loading}
+      />
     </div>
   );
 };

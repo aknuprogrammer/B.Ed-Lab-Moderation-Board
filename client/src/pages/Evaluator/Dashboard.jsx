@@ -305,6 +305,12 @@ const Dashboard = () => {
       }
       return true;
     });
+
+    return list.sort((a, b) => {
+      const regA = String(a.studentId?.regdNo || '');
+      const regB = String(b.studentId?.regdNo || '');
+      return regA.localeCompare(regB, undefined, { numeric: true, sensitivity: 'base' });
+    });
   }, [submissions, selectedCollege, selectedCourse, selectedSubject, selectedStatus, searchTerm]);
 
   const PAGE_SIZE = 10;

@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { Check, X, Eye, RefreshCw, AlertCircle, ShieldCheck, LogOut, ChevronLeft, ChevronRight, BookOpen, Sparkles, ClipboardCheck, Search ,FileSpreadsheet} from 'lucide-react';
+import { Check, X, Eye, RefreshCw, AlertCircle, ShieldCheck, LogOut, ChevronLeft, ChevronRight, BookOpen, Sparkles, ClipboardCheck, Search, FileSpreadsheet, Archive, Trash2 } from 'lucide-react';
 import { API_BASE_URL } from '../../utils/config';
 import SessionTimer from '../../components/SessionTimer';
+import ConfirmModal from '../../components/ConfirmModal';
 
 const BOSDashboard = () => {
   const navigate = useNavigate();
@@ -33,7 +34,77 @@ const BOSDashboard = () => {
 
   // UI state
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(true);
+  const [downloadingZip, setDownloadingZip] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState(null);
+
+  const handleDownloadBulkZip = async () => {
+    try {
+      setDownloadingZip(true);
+      setError('');
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`${API_BASE_URL}/api/bos/download-bulk-zip`, {
+        headers: { Authorization: `Bearer ${token}` },
+        responseType: 'blob'
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `Student_Records_Bulk_${Date.now()}.zip`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('BOS zip download error:', err);
+      setError('Failed to download bulk ZIP file.');
+    } finally {
+      setDownloadingZip(false);
+    }
+  };
+
+  const [purging, setPurging] = useState(false);
+
+  const handlePurgeRecords = () => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Permanently Delete Records & Free Storage?',
+      message: 'Are you sure you want to PERMANENTLY delete student assignment records and remove their uploaded PDF files from disk storage to free up space? This action CANNOT BE UNDONE.',
+      variant: 'danger',
+      confirmText: 'Yes, Delete & Reclaim Storage',
+      cancelText: 'Cancel',
+      loading: false,
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, loading: true }));
+        try {
+          const token = localStorage.getItem('token');
+          const res = await axios.post(`${API_BASE_URL}/api/bos/purge-records`, {}, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          if (res.data.success) {
+            setSuccessMessage(res.data.message || 'Records purged successfully.');
+            fetchApprovalsData();
+            setTimeout(() => setSuccessMessage(''), 5000);
+          }
+        } catch (err) {
+          console.error('BOS purge error:', err);
+          setError(err.response?.data?.message || 'Failed to purge records.');
+        } finally {
+          setConfirmModal(prev => ({ ...prev, isOpen: false, loading: false }));
+        }
+      }
+    });
+  };
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    variant: 'info',
+    confirmText: 'Confirm',
+    cancelText: 'Cancel',
+    loading: false,
+    onConfirm: null
+  });
+
   const [noteModal, setNoteModal] = useState({
     isOpen: false,
     type: '', // 'approve' or 'reject'
@@ -167,29 +238,39 @@ const BOSDashboard = () => {
     }
   };
 
-  const handleApproveAllRecords = async (mode) => {
-    if (!window.confirm(`Are you sure you want to approve all ${mode} records?`)) {
-      return;
-    }
-    setError('');
-    setSuccessMessage('');
-    try {
-      const token = localStorage.getItem('token');
-      const res = await axios.post(`${API_BASE_URL}/api/bos/approve-all-records`, { mode }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (res.data.success) {
-        setSuccessMessage(`All ${mode} records approved successfully.`);
-        setRecordsData(prev => ({
-          regular: mode === 'Regular' ? [] : prev.regular,
-          supply: mode === 'Supply' ? [] : prev.supply
-        }));
-        setTimeout(() => setSuccessMessage(''), 4000);
+  const handleApproveAllRecords = (mode) => {
+    setConfirmModal({
+      isOpen: true,
+      title: `Approve All ${mode} Records`,
+      message: `Are you sure you want to approve all ${mode} records? This will endorse all submitted records in bulk.`,
+      variant: 'info',
+      confirmText: `Yes, Approve All ${mode}`,
+      loading: false,
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, loading: true }));
+        setError('');
+        setSuccessMessage('');
+        try {
+          const token = localStorage.getItem('token');
+          const res = await axios.post(`${API_BASE_URL}/api/bos/approve-all-records`, { mode }, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          if (res.data.success) {
+            setSuccessMessage(`All ${mode} records approved successfully.`);
+            setRecordsData(prev => ({
+              regular: mode === 'Regular' ? [] : prev.regular,
+              supply: mode === 'Supply' ? [] : prev.supply
+            }));
+            setTimeout(() => setSuccessMessage(''), 4000);
+          }
+        } catch (err) {
+          console.error(err);
+          setError(err.response?.data?.message || 'Failed to approve all records.');
+        } finally {
+          setConfirmModal(prev => ({ ...prev, isOpen: false, loading: false }));
+        }
       }
-    } catch (err) {
-      console.error(err);
-      setError(err.response?.data?.message || 'Failed to approve all records.');
-    }
+    });
   };
 
   const handleApprovePaper = async (studentId, paperId, mode) => {
@@ -214,29 +295,39 @@ const BOSDashboard = () => {
     }
   };
 
-  const handleApproveAllPapers = async (mode) => {
-    if (!window.confirm(`Are you sure you want to approve all ${mode} papers?`)) {
-      return;
-    }
-    setError('');
-    setSuccessMessage('');
-    try {
-      const token = localStorage.getItem('token');
-      const res = await axios.post(`${API_BASE_URL}/api/bos/approve-all-papers`, { mode }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (res.data.success) {
-        setSuccessMessage(`All ${mode} papers approved successfully.`);
-        setPapersData(prev => ({
-          regular: mode === 'Regular' ? [] : prev.regular,
-          supply: mode === 'Supply' ? [] : prev.supply
-        }));
-        setTimeout(() => setSuccessMessage(''), 4000);
+  const handleApproveAllPapers = (mode) => {
+    setConfirmModal({
+      isOpen: true,
+      title: `Approve All ${mode} Papers`,
+      message: `Are you sure you want to approve all ${mode} papers?`,
+      variant: 'info',
+      confirmText: `Yes, Approve All ${mode}`,
+      loading: false,
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, loading: true }));
+        setError('');
+        setSuccessMessage('');
+        try {
+          const token = localStorage.getItem('token');
+          const res = await axios.post(`${API_BASE_URL}/api/bos/approve-all-papers`, { mode }, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          if (res.data.success) {
+            setSuccessMessage(`All ${mode} papers approved successfully.`);
+            setPapersData(prev => ({
+              regular: mode === 'Regular' ? [] : prev.regular,
+              supply: mode === 'Supply' ? [] : prev.supply
+            }));
+            setTimeout(() => setSuccessMessage(''), 4000);
+          }
+        } catch (err) {
+          console.error(err);
+          setError(err.response?.data?.message || 'Failed to approve all papers.');
+        } finally {
+          setConfirmModal(prev => ({ ...prev, isOpen: false, loading: false }));
+        }
       }
-    } catch (err) {
-      console.error(err);
-      setError(err.response?.data?.message || 'Failed to approve all papers.');
-    }
+    });
   };
 
   const handleLogout = () => {
@@ -374,13 +465,32 @@ const BOSDashboard = () => {
                   : 'Verify and approve evaluated subjects and consolidated papers before enabling admin downloads.'}
               </p>
             </div>
-            <button 
-              onClick={activeView === 'principals' ? fetchPendingPrincipals : fetchApprovalsData}
-              className="px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white border border-white/10 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-all self-start md:self-center shrink-0 cursor-pointer"
-            >
-              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-              {activeView === 'principals' ? 'Sync Principals' : 'Sync Approvals'}
-            </button>
+            <div className="flex items-center gap-3 self-start md:self-center shrink-0 flex-wrap">
+              <button 
+                onClick={activeView === 'principals' ? fetchPendingPrincipals : fetchApprovalsData}
+                className="px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white border border-white/10 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
+              >
+                <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                {activeView === 'principals' ? 'Sync Principals' : 'Sync Approvals'}
+              </button>
+              <button 
+                onClick={handleDownloadBulkZip}
+                disabled={downloadingZip}
+                className="px-4 py-2.5 bg-teal-500/30 hover:bg-teal-500/50 text-white border border-teal-300/40 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm disabled:opacity-50"
+              >
+                {downloadingZip ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />}
+                {downloadingZip ? 'Generating ZIP...' : 'Download Bulk Records (ZIP)'}
+              </button>
+              <button 
+                onClick={handlePurgeRecords}
+                disabled={purging}
+                className="px-4 py-2.5 bg-rose-500/30 hover:bg-rose-500/50 text-white border border-rose-300/40 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm disabled:opacity-50"
+                title="Permanently delete records and disk files to free server storage"
+              >
+                {purging ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                {purging ? 'Purging...' : 'Purge Storage'}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1056,6 +1166,19 @@ const BOSDashboard = () => {
           </div>
         </div>
       )}
+
+      {/* Dynamic Confirm Modal */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={confirmModal.onConfirm}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        variant={confirmModal.variant}
+        confirmText={confirmModal.confirmText}
+        cancelText={confirmModal.cancelText}
+        loading={confirmModal.loading}
+      />
     </div>
   );
 };

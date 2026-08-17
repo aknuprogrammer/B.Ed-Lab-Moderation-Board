@@ -770,6 +770,28 @@ exports.getStudents = async () => {
   }));
 };
 
+exports.resetStudentRegistration = async (studentId) => {
+  const student = await User.findById(studentId);
+  if (!student) {
+    throw new AppError('Student record not found.', 404);
+  }
+
+  if (student.role !== 'STUDENT') {
+    throw new AppError('Specified user is not a student.', 400);
+  }
+
+  student.faceDescriptor = [];
+  student.profileImage = null;
+  student.isSetupComplete = false;
+  student.isApproved = false;
+  student.approvalStatus = 'PENDING';
+  await student.save();
+
+  return {
+    message: `Face registration reset successfully for student ${student.fullName || student.regdNo} (${student.regdNo}). The student can now register freshly.`
+  };
+};
+
 exports.getSubjectMaps = async () => {
   return await Subject.find({ studentChoice: 'C' });
 };

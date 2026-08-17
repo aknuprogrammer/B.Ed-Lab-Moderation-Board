@@ -377,6 +377,47 @@ exports.getAssignments = async (req, res) => {
   }
 };
 
+exports.getEvaluationReport = async (req, res) => {
+  try {
+    const evaluationReportService = require('../services/admin/evaluationReportService');
+    const report = await evaluationReportService.getEvaluationReport(req.query);
+    res.json(report);
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ message: error.message });
+  }
+};
+
+exports.downloadBulkRecordsZip = async (req, res) => {
+  try {
+    const bulkDownloadService = require('../services/bulkDownloadService');
+    await bulkDownloadService.streamBulkRecordsZip(req.query, res);
+  } catch (error) {
+    console.error('Bulk zip error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ message: 'Failed to generate bulk zip file.' });
+    }
+  }
+};
+
+exports.purgeAssignmentRecords = async (req, res) => {
+  try {
+    const recordPurgeService = require('../services/admin/recordPurgeService');
+    const activityLogService = require('../services/admin/activityLogService');
+    const result = await recordPurgeService.purgeAssignmentRecords(req.body);
+
+    activityLogService.logActivity({
+      userId: req.user._id,
+      userRole: req.user.role,
+      actionType: 'PURGE_RECORDS',
+      details: { description: `Purged ${result.deletedCount} assignment records freeing ${result.freedSpaceMB} MB storage.` }
+    }).catch(err => console.error("Activity logging failed:", err));
+
+    res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ message: error.message });
+  }
+};
+
 exports.getPaperGrades = async (req, res) => {
   try {
     const studentId = req.params.studentId || req.user?._id;
@@ -547,5 +588,25 @@ exports.getDashboardStats = async (req, res) => {
     res.json(result);
   } catch (error) {
     res.status(error.statusCode || 500).json({ message: error.message });
+  }
+};
+
+exports.resetStudentRegistration = async (req, res) => {
+  try {
+    const result = await masterDataService.resetStudentRegistration(req.params.id);
+
+    activityLogService.logActivity({
+      userId: req.user._id,
+      userRole: req.user.role,
+      actionType: 'UPDATE_MASTER_DATA',
+      entityId: req.params.id,
+      entityType: 'User',
+      details: { description: `Reset face registration setup for student ID: ${req.params.id}` }
+    }).catch(err => console.error("Activity logging failed:", err));
+
+    res.status(200).json(result);
+  } catch (error) {
+    const statusCode = error.statusCode || 500;
+    res.status(statusCode).json({ message: error.message });
   }
 };

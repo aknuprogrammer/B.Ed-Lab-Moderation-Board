@@ -134,38 +134,6 @@ const EvaluatedRecords = () => {
     setTimeout(() => setToastMessage(''), 3000);
   };
 
-  const handleEditSuggestedDeadline = async (record) => {
-    const currentDeadline = record.suggestedMarksDeadline
-      ? new Date(record.suggestedMarksDeadline).toISOString().split('T')[0]
-      : '';
-    const newDeadline = window.prompt("Enter new Suggested Marks Deadline (YYYY-MM-DD):", currentDeadline);
-    if (newDeadline === null) return;
-
-    if (!newDeadline.trim()) {
-      alert("Suggested Marks Deadline is required.");
-      return;
-    }
-
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(newDeadline.trim())) {
-      alert("Invalid date format. Please use YYYY-MM-DD.");
-      return;
-    }
-
-    try {
-      setToastMessage('Updating suggested marks deadline...');
-      await axios.put(`${API_BASE_URL}/api/admin/record/assignments/${record._id}`,
-        { suggestedMarksDeadline: newDeadline.trim() },
-        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
-      );
-      setToastMessage('Suggested marks deadline updated successfully!');
-      fetchAssignments();
-      setRefreshTrigger(prev => prev + 1);
-    } catch (err) {
-      alert(err.response?.data?.message || 'Failed to update suggested marks deadline');
-    }
-    setTimeout(() => setToastMessage(''), 3000);
-  };
-
   useEffect(() => {
     const fetchPapers = async () => {
       try {
@@ -554,14 +522,6 @@ const EvaluatedRecords = () => {
                       <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
                         <p className="font-medium text-slate-900">{record.groupSubjectName || record.subjectId?.subName}</p>
                         <p className="text-xs text-slate-500">{record.subjectId?.subCode}</p>
-                        {record.suggestedMarksDeadline ? (
-                          <p className="text-[11px] text-teal-600 font-semibold mt-1 flex items-center gap-1">
-                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-teal-500 animate-pulse"></span>
-                            Suggested Deadline: {new Date(record.suggestedMarksDeadline).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-                          </p>
-                        ) : (
-                          <p className="text-[11px] text-slate-400 italic mt-1">No suggested deadline</p>
-                        )}
                       </td>
                       <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm text-center font-semibold text-slate-800">
                         {record.maxMarks ?? record.subjectId?.maxMarks ?? '—'}
@@ -597,14 +557,6 @@ const EvaluatedRecords = () => {
                               Re-allocate
                             </button>
                           )}
-                          <button
-                            onClick={() => handleEditSuggestedDeadline(record)}
-                            className="inline-flex items-center px-2 py-1 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded text-xs font-semibold cursor-pointer shadow-sm transition-colors"
-                            title="Set Suggested Marks Deadline"
-                          >
-                            <Calendar className="w-3 h-3 mr-1 text-slate-500" />
-                            Deadline
-                          </button>
                         </div>
                       </td>
                     </tr>
@@ -647,14 +599,6 @@ const EvaluatedRecords = () => {
                       <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
                         <p className="font-medium text-slate-900">{record.groupSubjectName || record.subjectId?.subName}</p>
                         <p className="text-xs text-slate-500">{record.subjectId?.subCode}</p>
-                        {record.suggestedMarksDeadline ? (
-                          <p className="text-[11px] text-teal-600 font-semibold mt-1 flex items-center gap-1">
-                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-teal-500 animate-pulse"></span>
-                            Suggested Deadline: {new Date(record.suggestedMarksDeadline).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-                          </p>
-                        ) : (
-                          <p className="text-[11px] text-slate-400 italic mt-1">No suggested deadline</p>
-                        )}
                       </td>
                       <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm text-center font-semibold text-slate-800">
                         {record.maxMarks ?? record.subjectId?.maxMarks ?? '—'}
@@ -690,14 +634,6 @@ const EvaluatedRecords = () => {
                               Re-allocate
                             </button>
                           )}
-                          <button
-                            onClick={() => handleEditSuggestedDeadline(record)}
-                            className="inline-flex items-center px-2 py-1 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded text-xs font-semibold cursor-pointer shadow-sm transition-colors"
-                            title="Set Suggested Marks Deadline"
-                          >
-                            <Calendar className="w-3 h-3 mr-1 text-slate-500" />
-                            Deadline
-                          </button>
                         </div>
                       </td>
                     </tr>

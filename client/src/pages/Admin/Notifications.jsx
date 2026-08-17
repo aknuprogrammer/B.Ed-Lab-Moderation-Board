@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Bell, FileText, Trash2, Plus, X, Download, Calendar, Search, Edit2 } from 'lucide-react';
 import { API_BASE_URL } from '../../utils/config';
+import ConfirmModal from '../../components/ConfirmModal';
 
 const Notifications = () => {
   const [notifications, setNotifications] = useState([]);
@@ -9,6 +10,17 @@ const Notifications = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    variant: 'danger',
+    confirmText: 'Delete',
+    cancelText: 'Cancel',
+    loading: false,
+    isAlert: false,
+    onConfirm: null
+  });
 
   // Form states
   const [title, setTitle] = useState('');
@@ -103,19 +115,39 @@ const Notifications = () => {
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this notification circular?')) return;
-
-    try {
-      const token = localStorage.getItem('token');
-      await axios.delete(`${API_BASE_URL}/api/notifications/${id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      fetchNotifications();
-    } catch (err) {
-      console.error('Failed to delete notification:', err);
-      alert(err.response?.data?.message || 'Failed to delete notification');
-    }
+  const handleDelete = (id) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Delete Circular',
+      message: 'Are you sure you want to delete this notification circular? This action cannot be undone.',
+      variant: 'danger',
+      confirmText: 'Delete',
+      isAlert: false,
+      loading: false,
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, loading: true }));
+        try {
+          const token = localStorage.getItem('token');
+          await axios.delete(`${API_BASE_URL}/api/notifications/${id}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          fetchNotifications();
+        } catch (err) {
+          console.error('Failed to delete notification:', err);
+          setConfirmModal({
+            isOpen: true,
+            title: 'Delete Failed',
+            message: err.response?.data?.message || 'Failed to delete notification',
+            variant: 'danger',
+            isAlert: true,
+            onConfirm: null
+          });
+          return;
+        } finally {
+          setConfirmModal(prev => ({ ...prev, isOpen: false, loading: false }));
+        }
+      }
+    });
   };
 
   const filteredNotifications = notifications.filter(notif => 
@@ -359,6 +391,20 @@ const Notifications = () => {
           </div>
         </div>
       )}
+
+      {/* Dynamic Confirm / Alert Modal */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={confirmModal.onConfirm}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        variant={confirmModal.variant}
+        confirmText={confirmModal.confirmText}
+        cancelText={confirmModal.cancelText}
+        isAlert={confirmModal.isAlert}
+        loading={confirmModal.loading}
+      />
     </div>
   );
 };

@@ -69,17 +69,25 @@ const CollegeRecords = () => {
     }
   };
 
-  const filteredRecords = records.filter(r => {
-    if (!searchTerm.trim()) return true;
-    const term = searchTerm.toLowerCase().trim();
-    return (
-      (r.studentId?.fullName || '').toLowerCase().includes(term) ||
-      (r.studentId?.regdNo || '').toLowerCase().includes(term) ||
-      (r.subjectId?.subName || '').toLowerCase().includes(term) ||
-      (r.subjectId?.subCode || '').toLowerCase().includes(term) ||
-      (r.groupSubjectName || '').toLowerCase().includes(term)
-    );
-  });
+  const filteredRecords = React.useMemo(() => {
+    const list = records.filter(r => {
+      if (!searchTerm.trim()) return true;
+      const term = searchTerm.toLowerCase().trim();
+      return (
+        (r.studentId?.fullName || '').toLowerCase().includes(term) ||
+        (r.studentId?.regdNo || '').toLowerCase().includes(term) ||
+        (r.subjectId?.subName || '').toLowerCase().includes(term) ||
+        (r.subjectId?.subCode || '').toLowerCase().includes(term) ||
+        (r.groupSubjectName || '').toLowerCase().includes(term)
+      );
+    });
+
+    return list.sort((a, b) => {
+      const regA = String(a.studentId?.regdNo || '');
+      const regB = String(b.studentId?.regdNo || '');
+      return regA.localeCompare(regB, undefined, { numeric: true, sensitivity: 'base' });
+    });
+  }, [records, searchTerm]);
 
   return (
     <div className="p-4 sm:p-6 bg-slate-50 w-full animate-fade-in">

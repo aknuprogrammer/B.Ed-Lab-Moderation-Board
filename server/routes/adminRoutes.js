@@ -37,6 +37,9 @@ router.get('/assignment-data', adminController.getAssignmentData);
 
 // Actions
 router.get('/assignments', adminController.getAssignments);
+router.get('/evaluation-report', adminController.getEvaluationReport);
+router.get('/download-bulk-zip', adminController.downloadBulkRecordsZip);
+router.post('/purge-records', adminController.purgeAssignmentRecords);
 router.put('/assignments/bulk-deadline', adminController.bulkUpdateAssignmentDeadlines);
 router.post('/evaluators', adminController.createEvaluator);
 router.post('/evaluators/:id/subjects', adminController.assignSubjectsToEvaluator);
@@ -53,6 +56,7 @@ router.get('/session-logs/summary', adminController.getSessionLogSummary);
 router.get('/session-logs', adminController.getSessionLogs);
 router.post('/college-passwords', systemAdminOnly, adminController.updateCollegePasswords);
 router.get('/paper-approvals', adminController.getPaperApprovals);
+router.post('/students/:id/reset-registration', adminController.resetStudentRegistration);
 
 // Activity Logs
 // Exports

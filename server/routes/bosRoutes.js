@@ -24,5 +24,7 @@ router.post('/approve-all-records', bosController.approveAllRecords);
 router.get('/evaluated-papers', bosController.getEvaluatedPapers);
 router.post('/approve-paper', bosController.approvePaper);
 router.post('/approve-all-papers', bosController.approveAllPapers);
+router.get('/download-bulk-zip', bosController.downloadBulkRecordsZip);
+router.post('/purge-records', bosController.purgeAssignmentRecords);
 
 module.exports = router;
