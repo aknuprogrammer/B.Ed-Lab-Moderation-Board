@@ -37,6 +37,8 @@ export default function StudentEvaluationReport() {
   const [currentPage, setCurrentPage] = useState(1);
   const PAGE_SIZE = 15;
 
+  const [hasDownloadedRecords, setHasDownloadedRecords] = useState(false);
+
   const fetchDropdowns = async () => {
     try {
       const [colRes, curRes, semRes] = await Promise.all([
@@ -80,6 +82,7 @@ export default function StudentEvaluationReport() {
   }, [token]);
 
   useEffect(() => {
+    setHasDownloadedRecords(false);
     const timer = setTimeout(() => {
       fetchReportData();
     }, 300);
@@ -112,8 +115,10 @@ export default function StudentEvaluationReport() {
       setDownloadingZip(true);
       setError('');
       const params = new URLSearchParams();
-      if (selectedSemester) params.append('semester', selectedSemester);
       if (selectedCollege) params.append('collegeId', selectedCollege);
+      if (selectedCourse) params.append('courseId', selectedCourse);
+      if (selectedSemester) params.append('semester', selectedSemester);
+      if (selectedStatus) params.append('status', selectedStatus);
 
       const response = await axios.get(`${API}/download-bulk-zip?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -128,9 +133,20 @@ export default function StudentEvaluationReport() {
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
+      setHasDownloadedRecords(true);
     } catch (err) {
       console.error('Error downloading bulk zip:', err);
-      setError('Failed to download bulk ZIP archive.');
+      let errMsg = 'Failed to download bulk ZIP archive.';
+      if (err.response && err.response.data && err.response.data instanceof Blob) {
+        try {
+          const text = await err.response.data.text();
+          const parsed = JSON.parse(text);
+          if (parsed.message) errMsg = parsed.message;
+        } catch (e) {}
+      } else if (err.response?.data?.message) {
+        errMsg = err.response.data.message;
+      }
+      setError(errMsg);
     } finally {
       setDownloadingZip(false);
     }
@@ -156,6 +172,7 @@ export default function StudentEvaluationReport() {
 
           if (res.data.success) {
             setSuccessMessage(res.data.message || 'Records purged successfully.');
+            setHasDownloadedRecords(false);
             fetchReportData();
             setTimeout(() => setSuccessMessage(''), 5000);
           }
@@ -226,7 +243,7 @@ export default function StudentEvaluationReport() {
   };
 
   return (
-    <div className="p-6 space-y-6 max-w-[1600px] mx-auto animate-fadeIn">
+    <div className="p-4 sm:p-6 space-y-6 w-full max-w-full overflow-x-hidden animate-fadeIn">
       {/* Top Title & Quick Actions */}
       <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 bg-white p-5 sm:p-6 rounded-xl border border-slate-200 shadow-sm">
         <div className="flex items-center gap-3">
@@ -268,12 +285,20 @@ export default function StudentEvaluationReport() {
           </button>
           <button
             onClick={handlePurgeRecords}
-            disabled={purging || filteredReport.length === 0}
-            className="flex items-center justify-center gap-1.5 px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs sm:text-sm font-semibold transition-colors disabled:opacity-50 cursor-pointer shadow-xs whitespace-nowrap"
-            title="Permanently delete matching records and server disk PDF files to reclaim storage space"
+            disabled={purging || !hasDownloadedRecords || filteredReport.length === 0}
+            className={`flex items-center justify-center gap-1.5 px-3 py-2 text-white rounded-lg text-xs sm:text-sm font-semibold transition-colors shadow-xs whitespace-nowrap ${
+              hasDownloadedRecords && !purging && filteredReport.length > 0
+                ? 'bg-rose-600 hover:bg-rose-700 cursor-pointer'
+                : 'bg-slate-300 text-slate-500 cursor-not-allowed opacity-60'
+            }`}
+            title={
+              !hasDownloadedRecords 
+                ? 'Download Bulk Records (ZIP) first to enable record deletion' 
+                : 'Permanently delete matching records and server disk PDF files to reclaim storage space'
+            }
           >
             {purging ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-            {purging ? 'Purging...' : 'Purge Records'}
+            {purging ? 'Deleting...' : 'Delete Records'}
           </button>
         </div>
       </div>
@@ -328,9 +353,9 @@ export default function StudentEvaluationReport() {
       </div>
 
       {/* Filter Panel & Search */}
-      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
-          <div>
+      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4 max-w-full relative z-10">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
+          <div className="relative z-50">
             <label className="block text-xs font-semibold text-slate-600 mb-1">College</label>
             <SearchableDropdown
               options={[{ value: '', label: 'All Colleges' }, ...colleges]}
@@ -339,7 +364,7 @@ export default function StudentEvaluationReport() {
               placeholder="All Colleges"
             />
           </div>
-          <div>
+          <div className="relative z-40">
             <label className="block text-xs font-semibold text-slate-600 mb-1">Course</label>
             <SearchableDropdown
               options={[{ value: '', label: 'All Courses' }, ...courses]}
@@ -348,7 +373,7 @@ export default function StudentEvaluationReport() {
               placeholder="All Courses"
             />
           </div>
-          <div>
+          <div className="relative z-30">
             <label className="block text-xs font-semibold text-slate-600 mb-1">Semester</label>
             <SearchableDropdown
               options={[{ value: '', label: 'All Semesters' }, ...semesters]}
@@ -357,12 +382,12 @@ export default function StudentEvaluationReport() {
               placeholder="All Semesters"
             />
           </div>
-          <div>
+          <div className="relative z-20">
             <label className="block text-xs font-semibold text-slate-600 mb-1">Evaluation Status</label>
             <select
               value={selectedStatus}
               onChange={(e) => { setSelectedStatus(e.target.value); setCurrentPage(1); }}
-              className="w-full h-[38px] px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-md outline-none focus:border-teal-500 font-medium text-slate-700"
+              className="w-full h-[38px] px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-md outline-none focus:border-teal-500 font-medium text-slate-700 cursor-pointer"
             >
               <option value="">All Statuses</option>
               <option value="Evaluated">Evaluated</option>
@@ -370,12 +395,12 @@ export default function StudentEvaluationReport() {
               <option value="Pending">Pending Student Submission</option>
             </select>
           </div>
-          <div>
+          <div className="relative z-10">
             <label className="block text-xs font-semibold text-slate-600 mb-1">Evaluator Assignment</label>
             <select
               value={selectedEvaluatorAssigned}
               onChange={(e) => { setSelectedEvaluatorAssigned(e.target.value); setCurrentPage(1); }}
-              className="w-full h-[38px] px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-md outline-none focus:border-teal-500 font-medium text-slate-700"
+              className="w-full h-[38px] px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-md outline-none focus:border-teal-500 font-medium text-slate-700 cursor-pointer"
             >
               <option value="">All Assignments</option>
               <option value="assigned">Evaluator Assigned</option>

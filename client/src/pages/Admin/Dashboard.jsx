@@ -139,7 +139,7 @@ const Dashboard = () => {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 min-w-0 relative overflow-y-auto md:overflow-y-auto flex flex-col w-full">
+      <div className="flex-1 min-w-0 relative overflow-y-auto overflow-x-hidden flex flex-col w-full">
         <div className="absolute top-2 right-4 md:top-8 md:right-6 z-40 hidden md:block">
           <SessionTimer />
         </div>

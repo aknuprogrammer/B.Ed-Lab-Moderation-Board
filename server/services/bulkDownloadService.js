@@ -1,17 +1,37 @@
-const archiver = require('archiver');
+const archiverMod = require('archiver');
 const fs = require('fs');
 const path = require('path');
 const mongoose = require('mongoose');
 const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 const Assignment = require('../models/Assignment');
-const User = require('../models/User');
-const { Subject } = require('../models/MasterData');
 
 /**
- * Generate a Zip stream containing student record PDFs organized into college-wise folders.
- * Optimized for high-scale performance (20,000+ records across all colleges) using MongoDB cursors.
+ * Robust factory instantiation helper for archiver across v7 / v8+ CommonJS module exports
  */
-exports.streamBulkRecordsZip = async ({ semester, collegeId, mode, status }, res) => {
+function createArchiver(format, options) {
+  if (format === 'zip' && archiverMod.ZipArchive) {
+    return new archiverMod.ZipArchive(options);
+  }
+  if (format === 'tar' && archiverMod.TarArchive) {
+    return new archiverMod.TarArchive(options);
+  }
+  if (typeof archiverMod === 'function') {
+    return archiverMod(format, options);
+  }
+  if (typeof archiverMod.create === 'function') {
+    return archiverMod.create(format, options);
+  }
+  if (typeof archiverMod.default === 'function') {
+    return archiverMod.default(format, options);
+  }
+  throw new Error('Unsupported archiver module structure');
+}
+
+/**
+ * Generate a Zip stream containing ONLY student submitted record PDFs organized into college-wise folders.
+ * Un-submitted / pending records without student PDF uploads are completely excluded.
+ */
+exports.streamBulkRecordsZip = async ({ semester, collegeId, courseId, mode, status }, res) => {
   // Prevent response timeouts for large zip streams (set 30-min timeout)
   if (res.socket) {
     res.socket.setTimeout(30 * 60 * 1000);
@@ -21,50 +41,8 @@ exports.streamBulkRecordsZip = async ({ semester, collegeId, mode, status }, res
   if (mode && mode !== 'all') query.mode = mode;
   if (status && status !== 'all') query.status = status;
 
-  // DB-level filtering for collegeId (only if valid ObjectId)
-  if (collegeId && collegeId !== 'all' && collegeId !== 'undefined' && mongoose.Types.ObjectId.isValid(collegeId)) {
-    const studentsInCollege = await User.find({ collegeId }).select('_id').lean();
-    query.studentId = { $in: studentsInCollege.map(s => s._id) };
-  }
-
-  // DB-level filtering for semester
-  if (semester && semester !== 'all' && semester !== 'undefined') {
-    const semSubjects = await Subject.find({ semester: String(semester) }).select('_id').lean();
-    const semSubjectIds = semSubjects.map(s => s._id);
-    const semStudents = await User.find({ currentSemester: String(semester) }).select('_id').lean();
-    const semStudentIds = semStudents.map(s => s._id);
-
-    const semConditions = [];
-    if (semSubjectIds.length > 0) semConditions.push({ subjectId: { $in: semSubjectIds } });
-    if (semStudentIds.length > 0) semConditions.push({ studentId: { $in: semStudentIds } });
-
-    if (semConditions.length > 0) {
-      if (query.studentId) {
-        query.$and = [{ studentId: query.studentId }, { $or: semConditions }];
-        delete query.studentId;
-      } else {
-        query.$or = semConditions;
-      }
-    }
-  }
-
-  const zipFilename = `All_Colleges_Student_Records_${semester && semester !== 'all' ? 'Sem' + semester : 'All'}_${Date.now()}.zip`;
-  res.setHeader('Content-Type', 'application/zip');
-  res.setHeader('Content-Disposition', `attachment; filename="${zipFilename}"`);
-
-  const archive = archiver('zip', { zlib: { level: 5 } });
-
-  archive.on('error', (err) => {
-    console.error('Archive generation error:', err);
-    if (!res.headersSent) {
-      res.status(500).json({ message: 'Zip generation failed' });
-    }
-  });
-
-  archive.pipe(res);
-
-  // Stream records with cursor to maintain low, steady memory usage (~30MB)
-  const cursor = Assignment.find(query)
+  // 1. Fetch matching assignments with populated student, college, course, subject, and evaluator info
+  const assignments = await Assignment.find(query)
     .populate({
       path: 'studentId',
       select: 'fullName regdNo currentSemester collegeId courseId',
@@ -75,14 +53,48 @@ exports.streamBulkRecordsZip = async ({ semester, collegeId, mode, status }, res
     })
     .populate('subjectId', 'subCode subName subPassMarks maxMarks semester')
     .populate('evaluatorId', 'fullName regdNo')
-    .lean()
-    .cursor();
+    .lean();
 
-  let processedCount = 0;
+  // 2. Perform safe, bulletproof in-memory filtering for collegeId, courseId, semester, and SUBMITTED status ONLY
+  const filteredAssignments = assignments.filter(asg => {
+    if (!asg || !asg.studentId) return false;
 
-  for await (const asg of cursor) {
-    if (!asg || !asg.studentId) continue;
+    // EXPLICIT REQUIREMENT: Only include records that have been submitted by students (must have filePath or status !== 'Pending')
+    if (!asg.filePath && asg.status === 'Pending') {
+      return false;
+    }
 
+    // Filter by collegeId if provided
+    if (collegeId && collegeId !== 'all' && collegeId !== 'undefined' && mongoose.Types.ObjectId.isValid(collegeId)) {
+      const studentCollId = asg.studentId.collegeId?._id 
+        ? String(asg.studentId.collegeId._id) 
+        : (asg.studentId.collegeId ? String(asg.studentId.collegeId) : '');
+      if (studentCollId !== String(collegeId)) return false;
+    }
+
+    // Filter by courseId if provided
+    if (courseId && courseId !== 'all' && courseId !== 'undefined' && mongoose.Types.ObjectId.isValid(courseId)) {
+      const studentCourseId = asg.studentId.courseId?._id 
+        ? String(asg.studentId.courseId._id) 
+        : (asg.studentId.courseId ? String(asg.studentId.courseId) : '');
+      if (studentCourseId !== String(courseId)) return false;
+    }
+
+    // Filter by semester if provided
+    if (semester && semester !== 'all' && semester !== 'undefined') {
+      const subSem = String(asg.subjectId?.semester || '').trim();
+      const stuSem = String(asg.studentId?.currentSemester || '').trim();
+      const targetSem = String(semester).trim();
+      if (subSem !== targetSem && stuSem !== targetSem) return false;
+    }
+
+    return true;
+  });
+
+  // 3. Prepare ZIP file entries ONLY for submitted student records
+  const zipEntries = [];
+
+  for (const asg of filteredAssignments) {
     const student = asg.studentId || {};
     const college = student.collegeId || {};
     const subject = asg.subjectId || {};
@@ -119,40 +131,61 @@ exports.streamBulkRecordsZip = async ({ semester, collegeId, mode, status }, res
     };
 
     if (asg.filePath) {
-      const serverUploadPath = path.resolve(__dirname, '..', asg.filePath.replace(/^\//, ''));
-      if (fs.existsSync(serverUploadPath)) {
-        try {
-          const rawBuffer = fs.readFileSync(serverUploadPath);
-          pdfBuffer = await stampPdfHeader(rawBuffer, info);
-        } catch (e) {
-          console.error('Error stamping uploaded PDF:', e);
+      try {
+        const fileNameOnly = path.basename(asg.filePath);
+        const serverUploadPath = path.resolve(__dirname, '../uploads', fileNameOnly);
+        const altUploadPath = path.resolve(__dirname, '..', asg.filePath.replace(/^\//, ''));
+        
+        let targetDiskPath = null;
+        if (fs.existsSync(serverUploadPath)) {
+          targetDiskPath = serverUploadPath;
+        } else if (fs.existsSync(altUploadPath)) {
+          targetDiskPath = altUploadPath;
+        }
+
+        if (targetDiskPath) {
+          const rawBuffer = fs.readFileSync(targetDiskPath);
           try {
-            pdfBuffer = fs.readFileSync(serverUploadPath);
-          } catch (readErr) {
-            pdfBuffer = null;
+            pdfBuffer = await stampPdfHeader(rawBuffer, info);
+          } catch (stampErr) {
+            console.error('Error stamping header, using raw PDF:', stampErr);
+            pdfBuffer = rawBuffer;
           }
         }
+      } catch (e) {
+        console.error('Error reading student uploaded PDF:', e);
       }
     }
 
-    // Fallback: Generate an official 1-page Evaluation Summary PDF if PDF file on disk is not present
-    if (!pdfBuffer) {
-      try {
-        pdfBuffer = await generateSummaryPdf(info);
-      } catch (genErr) {
-        console.error('Error generating summary PDF fallback:', genErr);
-      }
-    }
-
+    // ONLY append if student has submitted a valid PDF file
     if (pdfBuffer) {
-      archive.append(pdfBuffer, { name: zipPath });
-      processedCount++;
+      const finalBuffer = Buffer.isBuffer(pdfBuffer) ? pdfBuffer : Buffer.from(pdfBuffer);
+      zipEntries.push({ name: zipPath, buffer: finalBuffer });
     }
   }
 
-  // If no records found at all, append an informative README file so ZIP stream finishes cleanly
-  if (processedCount === 0) {
-    const readmeContent = `NO STUDENT RECORDS FOUND FOR THE SELECTED CRITERIA.\nGenerated At: ${new Date().toISOString()}`;
+  // 4. Set response headers ONLY after all database queries and PDF processing succeeded
+  const zipFilename = `Submitted_Student_Records_${semester && semester !== 'all' ? 'Sem' + semester : 'All'}_${Date.now()}.zip`;
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="${zipFilename}"`);
+
+  const archive = createArchiver('zip', { zlib: { level: 5 } });
+
+  archive.on('error', (err) => {
+    console.error('Archive generation error:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ message: 'Zip generation failed' });
+    }
+  });
+
+  archive.pipe(res);
+
+  for (const entry of zipEntries) {
+    archive.append(entry.buffer, { name: entry.name });
+  }
+
+  if (zipEntries.length === 0) {
+    const readmeContent = `NO SUBMITTED STUDENT RECORDS FOUND FOR THE SELECTED CRITERIA.\nGenerated At: ${new Date().toISOString()}`;
     archive.append(Buffer.from(readmeContent), { name: 'README.txt' });
   }
 
@@ -165,7 +198,7 @@ exports.streamBulkRecordsZip = async ({ semester, collegeId, mode, status }, res
 async function stampPdfHeader(pdfBuffer, info) {
   const pdfDoc = await PDFDocument.load(pdfBuffer);
   const pages = pdfDoc.getPages();
-  if (pages.length === 0) return pdfBuffer;
+  if (pages.length === 0) return Buffer.isBuffer(pdfBuffer) ? pdfBuffer : Buffer.from(pdfBuffer);
 
   const firstPage = pages[0];
   const { width, height } = firstPage.getSize();
@@ -191,53 +224,6 @@ async function stampPdfHeader(pdfBuffer, info) {
     color: info.passFailStatus === 'PASS' ? rgb(0.05, 0.45, 0.25) : (info.passFailStatus === 'FAIL' ? rgb(0.7, 0.1, 0.1) : rgb(0.2, 0.2, 0.2)),
   });
 
-  return await pdfDoc.save();
-}
-
-/**
- * Generate an official 1-page summary PDF fallback when student PDF file is absent
- */
-async function generateSummaryPdf(info) {
-  const pdfDoc = await PDFDocument.create();
-  const page = pdfDoc.addPage([595, 842]);
-  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-  const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
-
-  const { width, height } = page.getSize();
-
-  page.drawText('ADIKAVI NANNAYA UNIVERSITY', {
-    x: 50, y: height - 50, size: 16, font: fontBold, color: rgb(0.08, 0.35, 0.45)
-  });
-  page.drawText('LAB EVALUATION RECORD SUMMARY SHEET', {
-    x: 50, y: height - 72, size: 12, font: fontBold, color: rgb(0.2, 0.2, 0.2)
-  });
-
-  page.drawRectangle({
-    x: 50, y: height - 120, width: width - 100, height: 32,
-    color: info.passFailStatus === 'PASS' ? rgb(0.9, 0.98, 0.93) : rgb(1, 0.92, 0.92),
-    borderColor: info.passFailStatus === 'PASS' ? rgb(0.09, 0.63, 0.35) : rgb(0.88, 0.22, 0.22),
-    borderWidth: 1
-  });
-
-  page.drawText(`RESULT: ${info.passFailStatus}   |   EVALUATED MARKS: ${info.score} / ${info.maxMarks}`, {
-    x: 65, y: height - 108, size: 11, font: fontBold,
-    color: info.passFailStatus === 'PASS' ? rgb(0.05, 0.45, 0.25) : rgb(0.7, 0.1, 0.1)
-  });
-
-  const details = [
-    ['Registration No:', info.regdNo],
-    ['Student Name:', info.studentName],
-    ['Subject Code:', info.subCode],
-    ['Subject Name:', info.subName],
-    ['Evaluator Name:', info.evaluatorName]
-  ];
-
-  let y = height - 165;
-  for (const [label, val] of details) {
-    page.drawText(label, { x: 50, y, size: 10, font: fontBold, color: rgb(0.3, 0.3, 0.3) });
-    page.drawText(String(val || 'N/A'), { x: 170, y, size: 10, font: fontRegular, color: rgb(0.1, 0.1, 0.1) });
-    y -= 25;
-  }
-
-  return await pdfDoc.save();
+  const pdfBytes = await pdfDoc.save();
+  return Buffer.from(pdfBytes);
 }
