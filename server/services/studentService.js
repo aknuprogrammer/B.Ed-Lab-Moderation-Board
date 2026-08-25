@@ -88,38 +88,11 @@ exports.submitAssignment = async ({ assignmentId, file, user, note, extractedTex
       if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
       throw new AppError(inspectionResult.reason || 'Digitally pasted signature image overlay detected on Certificate Page. Please scan and upload the physical paper record signed by your Principal.', 400);
     }
-
-    const pdfData = await pdfParse(dataBuffer);
     
-    serverExtractedText = pdfData.text.replace(/\s+/g, ' ').toUpperCase(); 
-    const regdNo = String(user.regdNo).toUpperCase();
-    const studentName = String(user.fullName).toUpperCase();
-    const subjectCode = assignment.subjectId?.subCode?.toUpperCase() || assignment.groupSubjectName?.toUpperCase();
-
-    const normalizeText = (t) => (t || '').replace(/[\s\W_]+/g, '').toUpperCase();
-    const combinedText = normalizeText(serverExtractedText) + normalizeText(clientExtractedText);
-
-    const normRegdNo = normalizeText(String(user.regdNo));
-    const normStudentName = normalizeText(String(user.fullName));
-    const normSubjectCode = subjectCode ? normalizeText(subjectCode) : '';
-
-    const hasRegNo = combinedText.includes(normRegdNo);
-    const hasStudentName = combinedText.includes(normStudentName);
-    const hasSubjectCode = normSubjectCode ? combinedText.includes(normSubjectCode) : true;
-
-    const hasText = combinedText.length > 20;
-
-    // 1. Check if it's the correct student's record
-    if (hasText && !hasRegNo && !hasStudentName) {
-      if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
-      throw new AppError('Upload rejected: This document appears to belong to another student. We could not find your Registration Number or Name on the certificate page.', 400);
-    }
-
-    // 2. Check if it's the correct subject
-    if (hasText && normSubjectCode && !hasSubjectCode) {
-      if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
-      throw new AppError(`Upload rejected: You appear to be uploading a record for the wrong subject. The subject code (${subjectCode}) was not found on the certificate page.`, 400);
-    }
+    // Server-side text parsing has been removed.
+    // The frontend strictly verifies the QR code on every single page 
+    // to guarantee it belongs to the correct student and subject.
+    
   } catch (parseError) {
     if (parseError.statusCode) throw parseError;
     console.error('PDF Parse Error:', parseError);
@@ -132,60 +105,7 @@ exports.submitAssignment = async ({ assignmentId, file, user, note, extractedTex
   assignment.submittedAt = new Date();
   if (note) assignment.studentNote = note;
   
-  // We ONLY use the clientExtractedText for similarity because the frontend 
-  // intentionally skipped Page 1 (the certificate). We absolutely MUST NOT fall back 
-  // to serverExtractedText, because serverExtractedText includes the Certificate page.
-  let finalExtractedText = (clientExtractedText !== undefined && clientExtractedText !== null) 
-    ? clientExtractedText.trim() 
-    : '';
-
-  // Strip out student-specific and subject-specific details before comparison
-  // This prevents false similarity matches based on identical cover pages or subject headers
-  const regdNo = String(user.regdNo).toUpperCase();
-  const studentName = String(user.fullName).toUpperCase();
-  const subjectCode = assignment.subjectId?.subCode?.toUpperCase() || assignment.groupSubjectName?.toUpperCase() || '';
-  const subjectName = assignment.subjectId?.subName?.toUpperCase() || '';
-
-  let comparisonText = finalExtractedText;
-  const tokensToStrip = [regdNo, studentName, subjectCode, subjectName].filter(Boolean);
-  
-  for (const token of tokensToStrip) {
-    // Escape regex chars
-    const escapedToken = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    comparisonText = comparisonText.replace(new RegExp(escapedToken, 'gi'), '');
-  }
-
-  // Also strip any dates (e.g. 12/04/2026, 12-4-26, Date: 12.04.2024)
-  comparisonText = comparisonText.replace(/\b(?:DATE|DT)?:?\s*\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b/gi, '');
-  
-  // Strip page numbers (e.g., "2 / 11", "2/11", "Page 2 of 11")
-  comparisonText = comparisonText.replace(/\b(?:page\s*)?\d+\s*(?:\/|of)\s*\d+\b/gi, '');
-
-  // Strip generic headers like "Activity Record" or stray symbols
-  comparisonText = comparisonText.replace(/ACTIVITY RECORD/gi, '');
-  
-  // Clean up the text: remove all punctuation and non-alphanumeric noise (which Tesseract often produces for handwriting)
-  comparisonText = comparisonText.replace(/[^\w\s]/g, ' ');
-  // Remove extra whitespace
-  comparisonText = comparisonText.replace(/\s+/g, ' ').trim();
-
-  // Calculate unique words to determine if this is just repeating boilerplate/noise from blank pages.
-  // We filter out words < 3 chars, words without vowels, and words with numbers to strictly ignore OCR barcode hallucinations and noise.
-  const validWords = comparisonText.toLowerCase().split(/\s+/).filter(w => {
-    return w.length > 2 && /[aeiouy]/.test(w) && !/\d/.test(w);
-  });
-  const uniqueWords = new Set(validWords);
-
-  // A real record will have many unique valid words. A blank document with repeating headers/noise will have very few.
-  // We require at least 20 unique valid words to trigger the plagiarism scanner.
-  if (comparisonText && comparisonText.length > 50 && uniqueWords.size > 20) {
-    // Plagiarism checking has been temporarily disabled as requested.
-    // We skip comparing with other assignments, but still save the extractedText for records.
-    assignment.extractedText = comparisonText; // Save the stripped version so future checks compare stripped vs stripped
-  } else if (!comparisonText && finalExtractedText) {
-    // If stripping everything leaves nothing (e.g. only cover page uploaded)
-    assignment.extractedText = finalExtractedText;
-  }
+  assignment.extractedText = 'QR_VERIFIED_SUCCESS';
 
   // Auto-routing to assigned evaluators
   if (!assignment.evaluatorId) {

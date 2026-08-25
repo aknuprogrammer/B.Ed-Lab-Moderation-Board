@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, FileText, Download, RefreshCw, Eye } from 'lucide-react';
 import { pdf } from '@react-pdf/renderer';
-import JsBarcode from 'jsbarcode';
 import BarcodePDF from './BarcodePDF';
 
 const RecordFormatModal = ({ isOpen, onClose }) => {
@@ -70,17 +69,16 @@ const RecordFormatModal = ({ isOpen, onClose }) => {
         courseName: 'B.Ed. Programme'
       };
 
-      // Generate barcode image data URL for preview
-      const canvas = document.createElement('canvas');
-      JsBarcode(canvas, '240011223344', {
-        format: 'CODE128',
-        displayValue: true,
-        fontSize: 16,
-        margin: 10,
-        width: 2,
-        height: 60
+      // Generate QR code image data URL for preview
+      const QRCode = (await import('qrcode')).default;
+      const barcodeDataUrl = await QRCode.toDataURL('240011223344-BED201-2', {
+        margin: 1,
+        width: 60,
+        color: {
+          dark: '#000000',
+          light: '#ffffff'
+        }
       });
-      const barcodeDataUrl = canvas.toDataURL('image/png');
 
       const doc = <BarcodePDF assignment={mockAssignment} barcodeDataUrl={barcodeDataUrl} user={mockUser} />;
       const asPdf = pdf([]);

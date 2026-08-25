@@ -1207,13 +1207,45 @@ const MasterData = () => {
               Add Record
             </button>
             {activeTab === 'students' && (
-              <button
-                onClick={() => setShowPromoteModal(true)}
-                className="flex items-center justify-center gap-1.5 bg-slate-800 text-white px-3 py-1.5 rounded-md text-xs font-semibold transition-colors shadow-sm cursor-pointer w-full sm:w-auto"
-              >
-                <UserPlus className="h-3.5 w-3.5" />
-                Promote
-              </button>
+              <>
+                <button
+                  onClick={async () => {
+                    try {
+                      const XLSX = await import('xlsx');
+                      const headers = ['Registration No', 'Semester', 'Student Name', 'Email Address', 'College Code', 'Group Code', 'Course Code', 'Face Status'];
+                      const rows = filteredRows.map(r => [
+                        r.regdNo || '',
+                        r.currentSemester || '',
+                        r.fullName || '',
+                        r.email || '',
+                        r.collegeCode || '',
+                        r.groupCode || '',
+                        r.courseCode || '',
+                        r.isSetupComplete ? 'Registered' : 'Pending Setup'
+                      ]);
+                      const data = [headers, ...rows];
+                      const ws = XLSX.utils.aoa_to_sheet(data);
+                      const wb = XLSX.utils.book_new();
+                      XLSX.utils.book_append_sheet(wb, ws, 'Students Data');
+                      XLSX.writeFile(wb, `Students_Export_${Date.now()}.xlsx`);
+                    } catch (err) {
+                      console.error('Excel Export Error:', err);
+                      showAlert('Export Failed', 'Failed to export data to Excel.', 'danger');
+                    }
+                  }}
+                  className="flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-md text-xs font-semibold transition-colors shadow-sm cursor-pointer w-full sm:w-auto"
+                >
+                  <FileSpreadsheet className="h-3.5 w-3.5" />
+                  Export
+                </button>
+                <button
+                  onClick={() => setShowPromoteModal(true)}
+                  className="flex items-center justify-center gap-1.5 bg-slate-800 text-white px-3 py-1.5 rounded-md text-xs font-semibold transition-colors shadow-sm cursor-pointer w-full sm:w-auto"
+                >
+                  <UserPlus className="h-3.5 w-3.5" />
+                  Promote
+                </button>
+              </>
             )}
             <button
               onClick={() => setModalTab(activeTab)}

@@ -1,6 +1,5 @@
 import React from 'react';
 import { Document, Page, Text, View, StyleSheet, Image, Font } from '@react-pdf/renderer';
-import JsBarcode from 'jsbarcode';
 import aknuLogo from '../assets/aknu_logo.png';
 import nannayaLogo from '../assets/nannaya_logo.png';
 
@@ -429,26 +428,8 @@ const BarcodePDF = ({ assignment, barcodeDataUrl, user }) => {
   const subjectName = assignment.groupSubjectName || assignment.subjectId?.subName || "Subject Name";
   const subjectCode = assignment.subjectId?.subCode || "Subject Code";
 
-  // Generate fallback barcode URL if barcodeDataUrl is not passed directly
+  // We rely entirely on barcodeDataUrl passed from the parent component
   let effectiveBarcodeUrl = barcodeDataUrl;
-  if (!effectiveBarcodeUrl && typeof document !== 'undefined') {
-    try {
-      const canvas = document.createElement('canvas');
-      JsBarcode(canvas, regdNo && regdNo !== 'Roll Number' ? regdNo : '240011223344', {
-        format: 'CODE128',
-        displayValue: true,
-        fontSize: 14,
-        margin: 0,
-        marginTop: 2,
-        marginBottom: 2,
-        width: 2,
-        height: 50
-      });
-      effectiveBarcodeUrl = canvas.toDataURL('image/png');
-    } catch (err) {
-      console.error('Barcode generation error:', err);
-    }
-  }
 
   // Check if Pedagogy Subject in 2nd or 3rd Semester
   const semStr = String(rawSem).trim().toUpperCase();

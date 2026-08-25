@@ -1,16 +1,17 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Book, FileText, Download, Upload, X, RefreshCw, CheckCircle, User as UserIcon, ChevronRight, Activity } from 'lucide-react';
+import { 
+  Book, LogOut, CheckCircle, Upload, Activity, User as UserIcon, X, Download, FileText, RefreshCw, ChevronRight
+} from 'lucide-react';
 import axios from 'axios';
 import { API_BASE_URL } from '../../utils/config';
-import JsBarcode from 'jsbarcode';
 import { pdf } from '@react-pdf/renderer';
+import jsQR from 'jsqr';
 import BarcodePDF from '../../components/BarcodePDF';
 import CertificatePDF from '../../components/CertificatePDF';
 import SessionTimer from '../../components/SessionTimer';
 import ActivityFeed from '../../components/ActivityFeed';
 import * as pdfjsLib from 'pdfjs-dist/build/pdf';
-import Tesseract from 'tesseract.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.mjs`;
 
@@ -177,7 +178,6 @@ const AssignmentTable = ({ title, data, currentPage, setCurrentPage, handleGener
                       let isPastDeadline = false;
                       if (assignment.deadline) {
                         const deadlineDate = new Date(assignment.deadline);
-                        // Extend deadline to the very end of the selected day (23:59:59)
                         deadlineDate.setHours(23, 59, 59, 999);
                         isPastDeadline = new Date() > deadlineDate;
                       }
@@ -253,53 +253,45 @@ const UploadRecordModal = ({ assignment, onClose, onSuccess }) => {
   const [scanProgress, setScanProgress] = useState('');
   const [error, setError] = useState('');
   const [note, setNote] = useState('');
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
 
-  const extractTextFromPDF = async (fileObj) => {
+  const verifyQRCodesInPDF = async (fileObj) => {
     try {
       const arrayBuffer = await fileObj.arrayBuffer();
       const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-      let fullText = '';
-      // Scan only the first page (certificate page) to verify the subject and student roll number
-      const startPage = 1;
-      const endPage = 1;
       
-      for (let i = startPage; i <= endPage; i++) {
-        setScanProgress(`Processing page ${i}...`);
+      const rollNumber = assignment.studentId?.regdNo || user?.regdNo || 'Student';
+      const subjectCode = assignment.subjectId?.subCode || assignment.groupSubjectName || 'SUB101';
+      const semester = assignment.studentId?.currentSemester || user?.currentSemester || assignment.subjectId?.semester || '2';
+      const expectedPayload = `${rollNumber}-${subjectCode}-${semester}`;
+      
+      for (let i = 1; i <= pdf.numPages; i++) {
+        setScanProgress(`Verifying QR Code on page ${i} of ${pdf.numPages}...`);
         const page = await pdf.getPage(i);
         
-        // 1. First try to get embedded text (Instant)
-        const textContent = await page.getTextContent();
-        const pageText = textContent.items.map(item => item.str).join(' ');
+        const viewport = page.getViewport({ scale: 2.0 }); 
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
         
-        if (pageText.trim().length > 50) {
-          // If the page has actual text, no need for slow OCR
-          fullText += pageText + ' ';
-        } else {
-          // 2. If no text (scanned image), fallback to OCR
-          setScanProgress(`Running OCR on page ${i}... (This may take a moment)`);
-          const viewport = page.getViewport({ scale: 2.0 }); // High scale for accurate text recognition
-          const canvas = document.createElement('canvas');
-          const context = canvas.getContext('2d');
-          canvas.height = viewport.height;
-          canvas.width = viewport.width;
-          
-          await page.render({ canvasContext: context, viewport }).promise;
-          const imgData = canvas.toDataURL('image/jpeg', 0.9); // High quality
-          
-          const { data: { text } } = await Tesseract.recognize(imgData, 'eng', {
-            logger: m => {
-              if (m.status === 'recognizing text') {
-                setScanProgress(`Scanning page ${i} (${Math.round(m.progress * 100)}%)`);
-              }
-            }
-          });
-          fullText += text + ' ';
+        await page.render({ canvasContext: context, viewport }).promise;
+        const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+        
+        const code = jsQR(imageData.data, imageData.width, imageData.height);
+        
+        if (!code) {
+          return { success: false, message: `Could not detect a QR Code on Page ${i}. Please make sure the QR code is clearly visible and not cut off.` };
+        }
+        
+        if (code.data !== expectedPayload) {
+          return { success: false, message: `QR Code mismatch on Page ${i}. Expected data for this subject but found: ${code.data}. Please make sure you are not mixing pages from another subject or student.` };
         }
       }
-      return fullText;
+      return { success: true };
     } catch (err) {
-      console.error('OCR Error:', err);
-      return ''; // fallback to empty if OCR fails
+      console.error('QR Verification Error:', err);
+      return { success: false, message: 'Failed to process PDF file. Please ensure it is a valid document.' };
     }
   };
 
@@ -307,7 +299,6 @@ const UploadRecordModal = ({ assignment, onClose, onSuccess }) => {
     const selected = e.target.files[0];
     if (!selected) return;
     
-    // Check if it's a PDF
     if (selected.type !== 'application/pdf') {
       setError('Please select a valid PDF file.');
       setFile(null);
@@ -339,19 +330,23 @@ const UploadRecordModal = ({ assignment, onClose, onSuccess }) => {
 
     setUploading(true);
     setError('');
-    setScanProgress('Initializing scanner...');
+    setScanProgress('Initializing QR Code verification...');
 
-    const extractedText = await extractTextFromPDF(file);
+    const verificationResult = await verifyQRCodesInPDF(file);
     setScanProgress('');
+    
+    if (!verificationResult.success) {
+      setError(verificationResult.message);
+      setUploading(false);
+      return;
+    }
 
     const formData = new FormData();
     formData.append('file', file);
     if (note.trim()) {
       formData.append('note', note.trim());
     }
-    if (extractedText.trim()) {
-      formData.append('extractedText', extractedText);
-    }
+    formData.append('extractedText', 'QR_VERIFIED_SUCCESS');
 
     try {
       const token = localStorage.getItem('token');
@@ -557,17 +552,20 @@ const Dashboard = () => {
 
   const handleGenerateBarcodePDF = async (assignment) => {
     try {
+      const QRCode = (await import('qrcode')).default;
       const rollNumber = assignment.studentId?.regdNo || user?.regdNo || 'Student';
-      const canvas = document.createElement('canvas');
-      JsBarcode(canvas, rollNumber, {
-        format: 'CODE128',
-        displayValue: true,
-        fontSize: 16,
-        margin: 10,
-        width: 2,
-        height: 60
+      const subjectCode = assignment.subjectId?.subCode || assignment.groupSubjectName || 'SUB101';
+      const semester = assignment.studentId?.currentSemester || user?.currentSemester || assignment.subjectId?.semester || '2';
+      const payload = `${rollNumber}-${subjectCode}-${semester}`;
+
+      const barcodeDataUrl = await QRCode.toDataURL(payload, {
+        margin: 1,
+        width: 60,
+        color: {
+          dark: '#000000',
+          light: '#ffffff'
+        }
       });
-      const barcodeDataUrl = canvas.toDataURL('image/png');
 
       const doc = <BarcodePDF assignment={assignment} barcodeDataUrl={barcodeDataUrl} user={user} />;
       const asPdf = pdf([]);
