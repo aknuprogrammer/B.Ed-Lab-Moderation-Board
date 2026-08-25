@@ -353,7 +353,6 @@ exports.assignSubjectsToEvaluator = async (id, { allocations, subjectIds, groupS
 exports.getSubjectsWithSubmissions = async (mode = 'Regular') => {
   const query = {
     status: { $ne: 'Pending' },
-    suggestedMarks: { $ne: null },
     isAbsent: { $ne: true }
   };
 
@@ -421,7 +420,6 @@ exports.getSubjectAllocationStats = async ({ subjectId, groupSubjectName, subjec
   const submittedQuery = {
     ...query,
     status: { $ne: 'Pending' },
-    suggestedMarks: { $ne: null },
     isAbsent: { $ne: true }
   };
   if (mode === 'Supply') {
@@ -500,7 +498,7 @@ exports.allocateSubjectBulk = async ({ subjectId, groupSubjectName, subjects, ev
   let totalAllocated = 0;
 
   for (const s of parsedSubjects) {
-    const query = { evaluatorId: null, status: { $ne: 'Pending' }, suggestedMarks: { $ne: null } };
+    const query = { evaluatorId: null, status: { $ne: 'Pending' } };
     if (mode === 'Supply') {
       query.mode = 'Supply';
     } else {
