@@ -280,6 +280,12 @@ exports.getPendingApprovals = async (collegeId) => {
   .select('regdNo fullName email profileImage currentSemester academicYear courseId approvalStatus isApproved createdAt updatedAt')
   .lean();
 
+  students.sort((a, b) => {
+    const regA = String(a.regdNo || '');
+    const regB = String(b.regdNo || '');
+    return regA.localeCompare(regB, undefined, { numeric: true, sensitivity: 'base' });
+  });
+
   return students;
 };
 

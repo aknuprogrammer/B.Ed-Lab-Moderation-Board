@@ -12,7 +12,9 @@ import {
   RefreshCw,
   AlertCircle,
   ShieldCheck,
-  UserCheck
+  UserCheck,
+  Eye,
+  X
 } from 'lucide-react';
 import { API_BASE_URL } from '../../utils/config';
 
@@ -22,6 +24,12 @@ const Overview = () => {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Missing Marks Modal State
+  const [isMissingMarksModalOpen, setIsMissingMarksModalOpen] = useState(false);
+  const [selectedMissingCollege, setSelectedMissingCollege] = useState(null);
+  const [missingMarksDetails, setMissingMarksDetails] = useState([]);
+  const [loadingMissingMarks, setLoadingMissingMarks] = useState(false);
 
   // Dropdown UI states
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -54,6 +62,23 @@ const Overview = () => {
       setError(err.response?.data?.message || 'Failed to load statistics.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleViewMissingMarks = async (college) => {
+    setSelectedMissingCollege(college);
+    setIsMissingMarksModalOpen(true);
+    setLoadingMissingMarks(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get(`${API_BASE_URL}/api/admin/missing-suggested-marks/${college._id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setMissingMarksDetails(res.data || []);
+    } catch (err) {
+      console.error('Error fetching missing marks details:', err);
+    } finally {
+      setLoadingMissingMarks(false);
     }
   };
 
@@ -98,6 +123,8 @@ const Overview = () => {
 
   const recordsSubmittedPct = totalRecords > 0 ? Math.round((totalRecordsSubmitted / totalRecords) * 100) : 0;
   const recordsPendingPct = totalRecords > 0 ? Math.round((totalRecordsPending / totalRecords) * 100) : 0;
+  
+  const missingSuggestedMarksByCollege = stats?.missingSuggestedMarksByCollege || [];
 
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-8">
@@ -458,6 +485,138 @@ const Overview = () => {
           </div>
         </div>
       </div>
+
+      {/* Missing Suggested Marks Section */}
+      <div className="space-y-4">
+        <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500">
+          Missing Suggested Marks (Action Required by Principals)
+        </h2>
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+          <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center gap-3">
+            <AlertCircle className="h-5 w-5 text-amber-500" />
+            <p className="text-sm font-medium text-slate-700">
+              The following colleges have submitted records but have not yet provided "Suggested Marks". These records cannot be evaluated until the Principal saves the suggested marks.
+            </p>
+          </div>
+          
+          <div className="overflow-x-auto max-h-80 elegant-scrollbar">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-50 text-slate-600 font-semibold sticky top-0 border-b border-slate-200">
+                <tr>
+                  <th className="px-6 py-3">College Code</th>
+                  <th className="px-6 py-3">College Name</th>
+                  <th className="px-6 py-3 text-center">Records Missing Suggested Marks</th>
+                  <th className="px-6 py-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {loading ? (
+                  <tr>
+                    <td colSpan="4" className="px-6 py-8 text-center text-slate-400">Loading data...</td>
+                  </tr>
+                ) : missingSuggestedMarksByCollege.length === 0 ? (
+                  <tr>
+                    <td colSpan="4" className="px-6 py-8 text-center font-medium text-emerald-600 flex items-center justify-center gap-2">
+                      <CheckCircle className="h-5 w-5" /> All submitted records have suggested marks!
+                    </td>
+                  </tr>
+                ) : (
+                  missingSuggestedMarksByCollege.map((college, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50/50">
+                      <td className="px-6 py-3 font-semibold text-slate-900">{college.collegeCode}</td>
+                      <td className="px-6 py-3 font-medium">{college.collegeName}</td>
+                      <td className="px-6 py-3 text-center">
+                        <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200 min-w-[3rem]">
+                          {college.missingCount}
+                        </span>
+                      </td>
+                      <td className="px-6 py-3 text-right">
+                        <button
+                          onClick={() => handleViewMissingMarks(college)}
+                          className="p-1.5 bg-teal-50 text-teal-600 hover:bg-teal-100 rounded-md transition-colors"
+                          title="View Details"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* Missing Suggested Marks Modal */}
+      {isMissingMarksModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <AlertCircle className="h-5 w-5 text-amber-500" />
+                  Missing Suggested Marks - {selectedMissingCollege?.collegeName}
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">College Code: {selectedMissingCollege?.collegeCode}</p>
+              </div>
+              <button 
+                onClick={() => setIsMissingMarksModalOpen(false)}
+                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-md transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
+              {loadingMissingMarks ? (
+                <div className="flex flex-col items-center justify-center py-12">
+                  <RefreshCw className="h-8 w-8 text-teal-600 animate-spin mb-4" />
+                  <p className="text-slate-500 font-medium text-sm">Loading details...</p>
+                </div>
+              ) : missingMarksDetails.length === 0 ? (
+                <div className="text-center py-12 text-slate-500 font-medium">
+                  No records missing suggested marks for this college.
+                </div>
+              ) : (
+                <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-100 text-slate-600 font-semibold border-b border-slate-200">
+                      <tr>
+                        <th className="px-4 py-3">Student Name</th>
+                        <th className="px-4 py-3">Regd No</th>
+                        <th className="px-4 py-3">Subject Name</th>
+                        <th className="px-4 py-3">Subject Code</th>
+                        <th className="px-4 py-3 text-center">Max Marks</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-slate-700">
+                      {missingMarksDetails.map((detail, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50">
+                          <td className="px-4 py-3 font-semibold text-slate-900">{detail.studentName}</td>
+                          <td className="px-4 py-3 text-slate-600">{detail.studentRegdNo}</td>
+                          <td className="px-4 py-3">{detail.subjectName}</td>
+                          <td className="px-4 py-3 text-slate-500">{detail.subjectCode}</td>
+                          <td className="px-4 py-3 text-center font-medium">{detail.maxMarks}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            
+            <div className="p-4 border-t border-slate-200 bg-white flex justify-end">
+              <button 
+                onClick={() => setIsMissingMarksModalOpen(false)}
+                className="px-4 py-2 bg-slate-100 text-slate-700 hover:bg-slate-200 font-semibold rounded-md transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

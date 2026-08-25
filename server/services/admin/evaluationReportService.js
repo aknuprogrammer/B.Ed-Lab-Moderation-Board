@@ -128,7 +128,12 @@ exports.getEvaluationReport = async ({ collegeId, courseId, semester, status, ev
     const passMark = subject.subPassMarks != null ? subject.subPassMarks : (maxMarks * 0.4);
 
     let resultStatus = 'PENDING';
-    if (a.status === 'Evaluated' && a.score != null) {
+    let scoreDisplay = a.score != null ? a.score : 'N/A';
+
+    if (a.isAbsent) {
+      resultStatus = 'FAIL';
+      scoreDisplay = 'ABS';
+    } else if (a.status === 'Evaluated' && a.score != null) {
       resultStatus = a.score >= passMark ? 'PASS' : 'FAIL';
     } else if (a.status === 'Submitted') {
       resultStatus = 'UNDER EVALUATION';
@@ -147,7 +152,7 @@ exports.getEvaluationReport = async ({ collegeId, courseId, semester, status, ev
       subjectName: subject.subName || a.groupSubjectName || 'N/A',
       mode: a.mode || 'Regular',
       status: a.status,
-      score: a.score != null ? a.score : 'N/A',
+      score: scoreDisplay,
       maxMarks,
       passMark,
       resultStatus,
@@ -157,7 +162,8 @@ exports.getEvaluationReport = async ({ collegeId, courseId, semester, status, ev
       updatedAt: a.updatedAt || a.createdAt,
       collegeIdStr: college._id ? String(college._id) : '',
       courseIdStr: course._id ? String(course._id) : '',
-      hasFile: !!a.filePath
+      hasFile: !!a.filePath,
+      isAbsent: !!a.isAbsent
     };
   });
 };

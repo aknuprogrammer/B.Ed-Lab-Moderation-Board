@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Routes, Route, Link, useLocation, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { Users, FileText, CheckCircle, Clock, Filter, RefreshCw, LogOut, Bell, ChevronLeft, ChevronRight, UserCheck } from 'lucide-react';
+import { Users, FileText, CheckCircle, Clock, Filter, RefreshCw, LogOut, Bell, ChevronLeft, ChevronRight, UserCheck, AlertCircle, X, Eye } from 'lucide-react';
 import Notifications from './Notifications';
 import PendingStudents from './PendingStudents';
 import CollegeRecords from './CollegeRecords';
@@ -187,6 +187,27 @@ const PrincipalDashboardStats = () => {
   const [error, setError] = useState('');
   const [selectedCourse, setSelectedCourse] = useState('');
   const [selectedSemester, setSelectedSemester] = useState('');
+
+  // Missing Marks State
+  const [isMissingMarksModalOpen, setIsMissingMarksModalOpen] = useState(false);
+  const [missingMarksDetails, setMissingMarksDetails] = useState([]);
+  const [loadingMissingMarks, setLoadingMissingMarks] = useState(false);
+
+  const fetchMissingMarks = async () => {
+    setIsMissingMarksModalOpen(true);
+    setLoadingMissingMarks(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get(`${API_BASE_URL}/api/principal/missing-suggested-marks`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setMissingMarksDetails(res.data || []);
+    } catch (err) {
+      console.error('Error fetching missing marks:', err);
+    } finally {
+      setLoadingMissingMarks(false);
+    }
+  };
 
   const fetchStats = async () => {
     setLoading(true);
@@ -418,6 +439,106 @@ const PrincipalDashboardStats = () => {
 
         </div>
       </div>
+      {/* Missing Suggested Marks Action & Modal */}
+      <div className="bg-amber-50 border border-amber-200 rounded-md p-5 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <AlertCircle className="h-6 w-6 text-amber-600" />
+          <div>
+            <h3 className="text-sm font-bold text-amber-900">Missing Suggested Marks</h3>
+            <p className="text-xs text-amber-700 mt-0.5">Check if any submitted student records are missing your suggested marks.</p>
+          </div>
+        </div>
+        <button
+          onClick={fetchMissingMarks}
+          className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-md text-sm font-bold shadow-sm transition-colors flex items-center gap-2 cursor-pointer"
+        >
+          <Eye className="h-4 w-4" /> View Records
+        </button>
+      </div>
+
+      {isMissingMarksModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <AlertCircle className="h-5 w-5 text-amber-500" />
+                  Action Required: Missing Suggested Marks
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  The following records have been submitted but cannot be evaluated until you assign suggested marks.
+                </p>
+              </div>
+              <button 
+                onClick={() => setIsMissingMarksModalOpen(false)}
+                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-md transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
+              {loadingMissingMarks ? (
+                <div className="flex flex-col items-center justify-center py-12">
+                  <RefreshCw className="h-8 w-8 text-teal-600 animate-spin mb-4" />
+                  <p className="text-slate-500 font-medium text-sm">Loading details...</p>
+                </div>
+              ) : missingMarksDetails.length === 0 ? (
+                <div className="text-center py-12 text-slate-500 font-medium">
+                  <CheckCircle className="h-10 w-10 text-emerald-500 mx-auto mb-3" />
+                  All submitted records have suggested marks! Great job.
+                </div>
+              ) : (
+                <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-100 text-slate-600 font-semibold border-b border-slate-200">
+                      <tr>
+                        <th className="px-4 py-3">Student Name</th>
+                        <th className="px-4 py-3">Regd No</th>
+                        <th className="px-4 py-3">Subject Name</th>
+                        <th className="px-4 py-3">Subject Code</th>
+                        <th className="px-4 py-3 text-center">Max Marks</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-slate-700">
+                      {missingMarksDetails.map((detail, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50">
+                          <td className="px-4 py-3 font-semibold text-slate-900">{detail.studentName}</td>
+                          <td className="px-4 py-3 text-slate-600">{detail.studentRegdNo}</td>
+                          <td className="px-4 py-3">{detail.subjectName}</td>
+                          <td className="px-4 py-3 text-slate-500">{detail.subjectCode}</td>
+                          <td className="px-4 py-3 text-center font-medium">{detail.maxMarks}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            
+            <div className="p-4 border-t border-slate-200 bg-white flex justify-between items-center">
+              <span className="text-xs text-slate-500 font-medium">
+                {missingMarksDetails.length > 0 && `Showing ${missingMarksDetails.length} missing records`}
+              </span>
+              <div className="flex gap-3">
+                <Link 
+                  to="/principal/records" 
+                  onClick={() => setIsMissingMarksModalOpen(false)}
+                  className="px-4 py-2 bg-teal-600 text-white hover:bg-teal-700 font-semibold rounded-md transition-colors"
+                >
+                  Go to College Records
+                </Link>
+                <button 
+                  onClick={() => setIsMissingMarksModalOpen(false)}
+                  className="px-4 py-2 bg-slate-100 text-slate-700 hover:bg-slate-200 font-semibold rounded-md transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

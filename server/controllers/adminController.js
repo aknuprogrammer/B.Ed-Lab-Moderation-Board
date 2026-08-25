@@ -610,3 +610,16 @@ exports.resetStudentRegistration = async (req, res) => {
     res.status(statusCode).json({ message: error.message });
   }
 };
+
+exports.getMissingSuggestedMarksDetails = async (req, res) => {
+  try {
+    const { collegeId } = req.params;
+    if (!collegeId) {
+      return res.status(400).json({ message: 'College ID is required.' });
+    }
+    const result = await masterDataService.getMissingSuggestedMarksDetails(collegeId);
+    res.json(result);
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ message: error.message });
+  }
+};

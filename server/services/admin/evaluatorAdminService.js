@@ -351,9 +351,10 @@ exports.assignSubjectsToEvaluator = async (id, { allocations, subjectIds, groupS
 };
 
 exports.getSubjectsWithSubmissions = async (mode = 'Regular') => {
-  const query = { 
+  const query = {
     status: { $ne: 'Pending' },
-    suggestedMarks: { $ne: null }
+    suggestedMarks: { $ne: null },
+    isAbsent: { $ne: true }
   };
 
   if (mode === 'Supply') {
@@ -417,7 +418,12 @@ exports.getSubjectAllocationStats = async ({ subjectId, groupSubjectName, subjec
     throw new AppError('Subject is required', 400);
   }
 
-  const submittedQuery = { ...query, status: { $ne: 'Pending' }, suggestedMarks: { $ne: null } };
+  const submittedQuery = {
+    ...query,
+    status: { $ne: 'Pending' },
+    suggestedMarks: { $ne: null },
+    isAbsent: { $ne: true }
+  };
   if (mode === 'Supply') {
     submittedQuery.mode = 'Supply';
   } else {

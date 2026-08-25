@@ -115,9 +115,13 @@ exports.getAssignmentData = async ({ collegeCode, courseCode, semester, groupCod
           if (!assignment) {
             backlogSubjectIds.add(sub._id.toString());
           } else if (assignment.status === 'Evaluated') {
-            const passMark = sub.subPassMarks != null ? sub.subPassMarks : (sub.maxMarks ? sub.maxMarks * 0.4 : 0);
-            if (assignment.score < passMark) {
+            if (assignment.isAbsent) {
               backlogSubjectIds.add(sub._id.toString());
+            } else {
+              const passMark = sub.subPassMarks != null ? sub.subPassMarks : (sub.maxMarks ? sub.maxMarks * 0.4 : 0);
+              if (assignment.score < passMark) {
+                backlogSubjectIds.add(sub._id.toString());
+              }
             }
           }
         }
@@ -287,21 +291,34 @@ exports.getPaperGrades = async (studentId) => {
       paperMaxMarks += sub.maxMarks || 0;
 
       if (assignment && assignment.status === 'Evaluated') {
-        obtainedScore += assignment.score || 0;
-        evaluatedCount++;
-
-        const passMark = sub.subPassMarks != null ? sub.subPassMarks : (sub.maxMarks ? sub.maxMarks * 0.4 : 0);
-        if (assignment.score < passMark) {
+        if (assignment.isAbsent) {
           hasFailedSubject = true;
-        }
+          evaluatedCount++;
+          
+          subjectsList.push({
+            subCode: sub.subCode,
+            subName: sub.subName,
+            score: 'ABS',
+            maxMarks: sub.maxMarks,
+            status: 'Evaluated'
+          });
+        } else {
+          obtainedScore += assignment.score || 0;
+          evaluatedCount++;
 
-        subjectsList.push({
-          subCode: sub.subCode,
-          subName: sub.subName,
-          score: assignment.score,
-          maxMarks: sub.maxMarks,
-          status: 'Evaluated'
-        });
+          const passMark = sub.subPassMarks != null ? sub.subPassMarks : (sub.maxMarks ? sub.maxMarks * 0.4 : 0);
+          if (assignment.score < passMark) {
+            hasFailedSubject = true;
+          }
+
+          subjectsList.push({
+            subCode: sub.subCode,
+            subName: sub.subName,
+            score: assignment.score,
+            maxMarks: sub.maxMarks,
+            status: 'Evaluated'
+          });
+        }
       } else {
         subjectsList.push({
           subCode: sub.subCode,
@@ -359,9 +376,13 @@ exports.getBacklogCandidates = async () => {
       if (!assignment) {
         candidates.push({ studentId: student, subjectId: sub, reason: 'Missed', score: null });
       } else if (assignment.status === 'Evaluated') {
-        const passMark = sub.subPassMarks != null ? sub.subPassMarks : (sub.maxMarks ? sub.maxMarks * 0.4 : 0);
-        if (assignment.score < passMark) {
-          candidates.push({ studentId: student, subjectId: sub, reason: 'Failed', score: assignment.score });
+        if (assignment.isAbsent) {
+          candidates.push({ studentId: student, subjectId: sub, reason: 'Failed (ABS)', score: 'ABS' });
+        } else {
+          const passMark = sub.subPassMarks != null ? sub.subPassMarks : (sub.maxMarks ? sub.maxMarks * 0.4 : 0);
+          if (assignment.score < passMark) {
+            candidates.push({ studentId: student, subjectId: sub, reason: 'Failed', score: assignment.score });
+          }
         }
       }
     }

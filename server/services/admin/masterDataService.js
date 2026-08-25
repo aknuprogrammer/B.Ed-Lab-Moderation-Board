@@ -936,6 +936,44 @@ exports.getDashboardStats = async (collegeId) => {
     status: 'Pending'
   });
 
+  const missingSuggestedMarksByCollege = await Assignment.aggregate([
+    {
+      $match: {
+        ...recordFilter,
+        status: { $in: ['Submitted', 'Evaluated'] },
+        suggestedMarks: null,
+        isAbsent: { $ne: true }
+      }
+    },
+    {
+      $lookup: {
+        from: 'users',
+        localField: 'studentId',
+        foreignField: '_id',
+        as: 'student'
+      }
+    },
+    { $unwind: '$student' },
+    {
+      $lookup: {
+        from: 'colleges',
+        localField: 'student.collegeId',
+        foreignField: '_id',
+        as: 'college'
+      }
+    },
+    { $unwind: '$college' },
+    {
+      $group: {
+        _id: '$college._id',
+        collegeCode: { $first: '$college.collegeCode' },
+        collegeName: { $first: '$college.collegeName' },
+        missingCount: { $sum: 1 }
+      }
+    },
+    { $sort: { missingCount: -1 } }
+  ]);
+
   return {
     totalPrincipals,
     totalPrincipalsRegistered,
@@ -943,6 +981,58 @@ exports.getDashboardStats = async (collegeId) => {
     totalStudentsRegistered,
     totalRecords,
     totalRecordsSubmitted,
-    totalRecordsPending
+    totalRecordsPending,
+    missingSuggestedMarksByCollege
   };
+};
+
+exports.getMissingSuggestedMarksDetails = async (collegeId) => {
+  const mongoose = require('mongoose');
+  
+  const records = await Assignment.aggregate([
+    {
+      $match: {
+        status: { $in: ['Submitted', 'Evaluated'] },
+        suggestedMarks: null,
+        isAbsent: { $ne: true }
+      }
+    },
+    {
+      $lookup: {
+        from: 'users',
+        localField: 'studentId',
+        foreignField: '_id',
+        as: 'student'
+      }
+    },
+    { $unwind: '$student' },
+    {
+      $match: {
+        'student.collegeId': new mongoose.Types.ObjectId(collegeId)
+      }
+    },
+    {
+      $lookup: {
+        from: 'subjects',
+        localField: 'subjectId',
+        foreignField: '_id',
+        as: 'subject'
+      }
+    },
+    { $unwind: { path: '$subject', preserveNullAndEmptyArrays: true } },
+    {
+      $project: {
+        studentRegdNo: '$student.regdNo',
+        studentName: '$student.fullName',
+        subjectCode: '$subject.subCode',
+        subjectName: { $cond: [{ $and: [{ $ne: ['$groupSubjectName', null] }, { $ne: ['$groupSubjectName', ''] }] }, '$groupSubjectName', '$subject.subName'] },
+        maxMarks: { $ifNull: ['$subject.maxMarks', '$maxMarks'] }
+      }
+    },
+    {
+      $sort: { studentRegdNo: 1, subjectName: 1 }
+    }
+  ]);
+  
+  return records;
 };

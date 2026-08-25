@@ -148,19 +148,66 @@ const runDailyReminderCheck = async () => {
 };
 
 /**
+ * Automatically marks pending assignments as "ABS" (Absent) if their submission deadline has passed.
+ */
+const markMissedDeadlinesAsAbsent = async () => {
+  console.log('[CRON] Starting automatic ABS marking job for missed deadlines...');
+  try {
+    const now = new Date();
+    // We want to mark assignments where deadline is STRICTLY before today (start of today).
+    // This gives students until 23:59:59 of their deadline day to submit.
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+
+    const result = await Assignment.updateMany(
+      {
+        status: 'Pending',
+        deadline: { $lt: startOfToday }
+      },
+      {
+        $set: {
+          status: 'Evaluated', // Mark as evaluated to close the loop
+          isAbsent: true,
+          feedback: 'ABS',
+          studentNote: 'Automatically marked absent due to missed submission deadline.'
+        },
+        $unset: {
+          score: "",
+          suggestedMarks: ""
+        }
+      }
+    );
+
+    if (result.modifiedCount > 0) {
+      console.log(`[CRON] Successfully marked ${result.modifiedCount} missed assignments as ABS.`);
+    } else {
+      console.log('[CRON] No missed assignments to mark as ABS today.');
+    }
+  } catch (error) {
+    console.error('[CRON] Error running ABS marking job:', error);
+  }
+};
+
+/**
  * Initializes the cron scheduler
  */
 const init = () => {
-  // Cron schedule: Run daily at 7:00 AM ('0 7 * * *')
+  // Cron schedule: Run daily at 7:00 AM ('0 7 * * *') for Reminders
   cron.schedule('0 7 * * *', () => {
     runDailyReminderCheck();
   });
   console.log('🗓️ Daily Submission Deadline Reminder Cron Job initialized (Scheduled for 7:00 AM daily).');
 
+  // Cron schedule: Run daily at 00:05 AM ('5 0 * * *') for ABS marking
+  cron.schedule('5 0 * * *', () => {
+    markMissedDeadlinesAsAbsent();
+  });
+  console.log('🗓️ Auto-ABS Marking Cron Job initialized (Scheduled for 00:05 AM daily).');
+
   // Trigger a mock check on service startup in local dev mode if specified
   if (process.env.TRIGGER_REMINDERS_ON_START === 'true') {
     console.log('🚀 Triggering immediate startup reminder scan (TRIGGER_REMINDERS_ON_START = true)');
     runDailyReminderCheck();
+    markMissedDeadlinesAsAbsent();
   }
 };
 

@@ -81,6 +81,10 @@ const assignmentSchema = new mongoose.Schema({
     type: String,
     enum: ['PENDING', 'APPROVED'],
     default: 'PENDING'
+  },
+  isAbsent: {
+    type: Boolean,
+    default: false
   }
 }, { timestamps: true });
 

@@ -162,11 +162,17 @@ const CollegeRecords = () => {
                       <p className="text-xs text-slate-500">Max Marks: {record.subjectId?.maxMarks || record.maxMarks || 100}</p>
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <span className={`inline-flex px-2 py-1 rounded text-xs font-semibold ${
-                        record.status === 'Evaluated' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'
-                      }`}>
-                        {record.status}
-                      </span>
+                      {record.isAbsent ? (
+                        <span className="inline-flex px-2 py-1 rounded text-xs font-semibold bg-rose-100 text-rose-700">
+                          Absent
+                        </span>
+                      ) : (
+                        <span className={`inline-flex px-2 py-1 rounded text-xs font-semibold ${
+                          record.status === 'Evaluated' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'
+                        }`}>
+                          {record.status}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-center">
                       {record.filePath ? (

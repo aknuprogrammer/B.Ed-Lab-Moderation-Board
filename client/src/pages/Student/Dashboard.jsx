@@ -130,7 +130,11 @@ const AssignmentTable = ({ title, data, currentPage, setCurrentPage, handleGener
                     </span>
                   </td>
                   <td className="hidden sm:table-cell px-6 py-4">
-                    {assignment.status === 'Evaluated' ? (
+                    {assignment.isAbsent ? (
+                      <span className="inline-flex items-center w-max px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-800 border border-rose-200">
+                        Absent
+                      </span>
+                    ) : assignment.status === 'Evaluated' ? (
                       <span className="inline-flex items-center w-max px-2.5 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800">
                         Evaluated
                       </span>

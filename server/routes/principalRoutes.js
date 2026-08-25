@@ -15,6 +15,7 @@ const principalOrAdmin = (req, res, next) => {
 router.use(protect, principalOrAdmin);
 
 router.get('/stats', principalController.getPrincipalDashboardStats);
+router.get('/missing-suggested-marks', principalController.getMissingSuggestedMarksDetails);
 router.get('/pending-students', principalController.getPendingStudents);
 router.get('/records', principalController.getCollegeRecords);
 router.put('/records/:id/suggest-marks', principalController.suggestMarks);

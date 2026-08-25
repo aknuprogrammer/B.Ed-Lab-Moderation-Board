@@ -223,8 +223,8 @@ export default function StudentEvaluationReport() {
         r.mode,
         r.evaluatorName,
         r.evaluatorEmail,
-        r.status,
-        r.score !== 'N/A' ? r.score : '',
+        r.isAbsent ? 'Absent' : r.status,
+        r.isAbsent ? 'ABS' : (r.score !== 'N/A' ? r.score : ''),
         r.maxMarks,
         r.passMark,
         r.resultStatus,
@@ -470,24 +470,26 @@ export default function StudentEvaluationReport() {
                     )}
                   </td>
                   <td className="px-4 py-3 text-center">
-                    {r.status === 'Evaluated' && (
+                    {r.isAbsent ? (
+                      <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-200">
+                        Absent
+                      </span>
+                    ) : r.status === 'Evaluated' ? (
                       <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
                         Evaluated
                       </span>
-                    )}
-                    {r.status === 'Submitted' && (
+                    ) : r.status === 'Submitted' ? (
                       <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200">
                         Submitted
                       </span>
-                    )}
-                    {r.status === 'Pending' && (
+                    ) : r.status === 'Pending' ? (
                       <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 border border-slate-200">
                         Pending
                       </span>
-                    )}
+                    ) : null}
                   </td>
                   <td className="px-4 py-3 text-center font-bold text-slate-800">
-                    {r.score !== 'N/A' ? `${r.score} / ${r.maxMarks}` : '-'}
+                    {r.isAbsent ? 'ABS' : r.score !== 'N/A' ? `${r.score} / ${r.maxMarks}` : '-'}
                   </td>
                   <td className="px-4 py-3 text-center">
                     {r.resultStatus === 'PASS' && (

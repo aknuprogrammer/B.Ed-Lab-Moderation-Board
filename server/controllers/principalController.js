@@ -11,6 +11,16 @@ exports.getPrincipalDashboardStats = async (req, res) => {
   }
 };
 
+exports.getMissingSuggestedMarksDetails = async (req, res) => {
+  try {
+    const masterDataService = require('../services/admin/masterDataService');
+    const result = await masterDataService.getMissingSuggestedMarksDetails(req.user.collegeId);
+    res.json(result);
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ message: error.message });
+  }
+};
+
 exports.getPendingStudents = async (req, res) => {
   try {
     const result = await principalService.getPendingStudents(req.user.collegeId, req.query);
