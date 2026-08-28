@@ -269,32 +269,33 @@ const UploadRecordModal = ({ assignment, onClose, onSuccess }) => {
       const semester = assignment.studentId?.currentSemester || user?.currentSemester || assignment.subjectId?.semester || '2';
       const expectedPayload = `${rollNumber}-${subjectCode}-${semester}`;
       
-      for (let i = 1; i <= pdf.numPages; i++) {
-        setScanProgress(`Verifying QR Code on page ${i} of ${pdf.numPages}...`);
-        const page = await pdf.getPage(i);
-        
-        const viewport = page.getViewport({ scale: 2.0 }); 
-        const canvas = document.createElement('canvas');
-        const context = canvas.getContext('2d', { willReadFrequently: true });
-        canvas.height = viewport.height;
-        canvas.width = viewport.width;
-        
-        await page.render({ canvasContext: context, viewport }).promise;
-        const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-        
-        const code = jsQR(imageData.data, imageData.width, imageData.height);
-        
-        if (!code) {
-          return { success: false, message: `Could not detect a QR Code on Page ${i}. Please make sure the QR code is clearly visible and not cut off.` };
-        }
-        
-        if (code.data !== expectedPayload) {
-          return { success: false, message: `QR Code mismatch on Page ${i}. Expected data for this subject but found: ${code.data}. Please make sure you are not mixing pages from another subject or student.` };
-        }
+      // Temporarily relaxed validation: Only check the first page for the barcode
+      // to allow students to upload older records during this recovery phase.
+      setScanProgress(`Verifying Barcode on the first page...`);
+      const page = await pdf.getPage(1);
+      
+      const viewport = page.getViewport({ scale: 2.0 }); 
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      canvas.height = viewport.height;
+      canvas.width = viewport.width;
+      
+      await page.render({ canvasContext: context, viewport }).promise;
+      const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+      
+      const code = jsQR(imageData.data, imageData.width, imageData.height);
+      
+      if (!code) {
+        return { success: false, message: `Could not detect a Barcode on the first page. Please make sure the Barcode is clearly visible and not cut off.` };
       }
+      
+      if (code.data !== expectedPayload) {
+        return { success: false, message: `Barcode mismatch. Expected data for this subject but found: ${code.data}. Please make sure you are not uploading another subject's record.` };
+      }
+
       return { success: true };
     } catch (err) {
-      console.error('QR Verification Error:', err);
+      console.error('Barcode Verification Error:', err);
       return { success: false, message: 'Failed to process PDF file. Please ensure it is a valid document.' };
     }
   };
@@ -334,7 +335,7 @@ const UploadRecordModal = ({ assignment, onClose, onSuccess }) => {
 
     setUploading(true);
     setError('');
-    setScanProgress('Initializing QR Code verification...');
+    setScanProgress('Initializing Barcode verification...');
 
     const verificationResult = await verifyQRCodesInPDF(file);
     setScanProgress('');
