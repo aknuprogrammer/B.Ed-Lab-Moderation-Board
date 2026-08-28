@@ -24,6 +24,9 @@ app.use(cors({
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', (req, res) => {
+  res.status(404).send('<h2>Record Not Found</h2><p>The requested file could not be found on the server. It may have been deleted or not uploaded correctly.</p>');
+});
 
 // Routes
 const authRoutes = require('./routes/authRoutes');
