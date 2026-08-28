@@ -33,11 +33,7 @@ exports.getAssignedRecords = async (evaluatorId) => {
   if (!evaluator) throw new AppError('Evaluator not found', 404);
 
   const records = await Assignment.find({ 
-    $or: [
-      { evaluatorId },
-      { subjectId: { $in: evaluator.subjects || [] } },
-      { groupSubjectName: { $in: evaluator.groupSubjects || [] } }
-    ],
+    evaluatorId: evaluatorId,
     status: { $ne: 'Pending' } 
   })
     .populate({

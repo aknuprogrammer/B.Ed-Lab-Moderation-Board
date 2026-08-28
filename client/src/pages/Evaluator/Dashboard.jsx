@@ -154,8 +154,12 @@ const Dashboard = () => {
         const res = await axios.get(`${API_BASE_URL}/api/evaluator/records`, {
           headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
         });
-        // Sort newly submitted/created records on top
-        const sorted = res.data.sort((a, b) => new Date(b.submittedAt || b.createdAt || 0) - new Date(a.submittedAt || a.createdAt || 0));
+        // Sort by student registration number ascending as requested
+        const sorted = res.data.sort((a, b) => {
+          const regA = String(a.studentId?.regdNo || '');
+          const regB = String(b.studentId?.regdNo || '');
+          return regA.localeCompare(regB, undefined, { numeric: true, sensitivity: 'base' });
+        });
         setSubmissions(sorted);
 
         const initMarks = {};
@@ -304,12 +308,6 @@ const Dashboard = () => {
         return false;
       }
       return true;
-    });
-
-    return list.sort((a, b) => {
-      const regA = String(a.studentId?.regdNo || '');
-      const regB = String(b.studentId?.regdNo || '');
-      return regA.localeCompare(regB, undefined, { numeric: true, sensitivity: 'base' });
     });
   }, [submissions, selectedCollege, selectedCourse, selectedSubject, selectedStatus, searchTerm]);
 
