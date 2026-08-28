@@ -96,7 +96,8 @@ exports.login = async ({ regdNo, password, email, faceDescriptor, latitude, long
     throw new AppError('Please create your account before login', 403);
   }
 
-  const isMatch = await user.comparePassword(password);
+  const cleanPassword = password ? password.trim() : '';
+  const isMatch = await user.comparePassword(cleanPassword);
   if (!isMatch) {
     throw new AppError('Invalid credentials', 401);
   }

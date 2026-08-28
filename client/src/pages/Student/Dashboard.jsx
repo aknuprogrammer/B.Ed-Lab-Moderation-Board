@@ -7,6 +7,7 @@ import axios from 'axios';
 import { API_BASE_URL } from '../../utils/config';
 import { pdf } from '@react-pdf/renderer';
 import jsQR from 'jsqr';
+import { BrowserMultiFormatReader } from '@zxing/library';
 import BarcodePDF from '../../components/BarcodePDF';
 import CertificatePDF from '../../components/CertificatePDF';
 import SessionTimer from '../../components/SessionTimer';
@@ -223,7 +224,7 @@ const AssignmentTable = ({ title, data, currentPage, setCurrentPage, handleGener
                             {isLocked 
                               ? 'Locked' 
                               : assignment.status === 'Submitted' 
-                                ? 'Update' 
+                                ? 'Re-upload' 
                                 : 'Upload PDF'}
                           </button>
                         </div>
@@ -261,38 +262,7 @@ const UploadRecordModal = ({ assignment, onClose, onSuccess }) => {
 
   const verifyQRCodesInPDF = async (fileObj) => {
     try {
-      const arrayBuffer = await fileObj.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-      
-      const rollNumber = assignment.studentId?.regdNo || user?.regdNo || 'Student';
-      const subjectCode = assignment.subjectId?.subCode || assignment.groupSubjectName || 'SUB101';
-      const semester = assignment.studentId?.currentSemester || user?.currentSemester || assignment.subjectId?.semester || '2';
-      const expectedPayload = `${rollNumber}-${subjectCode}-${semester}`;
-      
-      // Temporarily relaxed validation: Only check the first page for the barcode
-      // to allow students to upload older records during this recovery phase.
-      setScanProgress(`Verifying Barcode on the first page...`);
-      const page = await pdf.getPage(1);
-      
-      const viewport = page.getViewport({ scale: 2.0 }); 
-      const canvas = document.createElement('canvas');
-      const context = canvas.getContext('2d', { willReadFrequently: true });
-      canvas.height = viewport.height;
-      canvas.width = viewport.width;
-      
-      await page.render({ canvasContext: context, viewport }).promise;
-      const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-      
-      const code = jsQR(imageData.data, imageData.width, imageData.height);
-      
-      if (!code) {
-        return { success: false, message: `Could not detect a Barcode on the first page. Please make sure the Barcode is clearly visible and not cut off.` };
-      }
-      
-      if (code.data !== expectedPayload) {
-        return { success: false, message: `Barcode mismatch. Expected data for this subject but found: ${code.data}. Please make sure you are not uploading another subject's record.` };
-      }
-
+      // Barcode verification temporarily bypassed as requested
       return { success: true };
     } catch (err) {
       console.error('Barcode Verification Error:', err);
@@ -382,7 +352,7 @@ const UploadRecordModal = ({ assignment, onClose, onSuccess }) => {
         <div className="flex items-center justify-between px-6 py-4 bg-teal-700 text-white">
           <div className="flex items-center gap-2">
             <Upload className="h-5 w-5" />
-            <h3 className="text-lg font-semibold">Upload Completed Record</h3>
+            <h3 className="text-lg font-semibold">{assignment.status === 'Submitted' ? 'Re-upload Record' : 'Upload Completed Record'}</h3>
           </div>
           <button onClick={onClose} className="text-white/70 hover:text-white transition-colors cursor-pointer rounded-md p-0.5">
             <X className="h-5 w-5" />
@@ -483,7 +453,7 @@ const UploadRecordModal = ({ assignment, onClose, onSuccess }) => {
               className="flex items-center gap-2 px-5 py-2 rounded-md text-sm font-semibold text-white bg-teal-700 hover:bg-teal-800 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {uploading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
-              {uploading ? (scanProgress || 'Uploading…') : 'Submit Record'}
+              {uploading ? (scanProgress || 'Uploading…') : (assignment.status === 'Submitted' ? 'Update Record' : 'Submit Record')}
             </button>
           </div>
         </form>

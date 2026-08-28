@@ -60,6 +60,7 @@ const CollegeRecords = () => {
       }, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
+      setRecords(prev => prev.map(r => r._id === id ? { ...r, suggestedMarks: Number(val) } : r));
       setSuccessMsg('Suggested marks saved successfully!');
       setTimeout(() => setSuccessMsg(''), 3000);
     } catch (err) {
@@ -221,6 +222,11 @@ const CollegeRecords = () => {
                           isDeadlinePassed = new Date() > deadlineDate;
                         }
                         
+                        const isSaved = record.suggestedMarks !== undefined && 
+                                        record.suggestedMarks !== null && 
+                                        Number(record.suggestedMarks) === Number(val) &&
+                                        val !== '';
+                        
                         return (
                           <div className="flex flex-col items-center gap-1">
                             <div className="flex items-center justify-center gap-2">
@@ -240,8 +246,10 @@ const CollegeRecords = () => {
                               <button
                                 onClick={() => handleSaveMarks(record._id)}
                                 disabled={savingId === record._id || record.status === 'Evaluated' || hasError || isDeadlinePassed}
-                                className="p-1.5 bg-teal-600 text-white rounded hover:bg-teal-700 disabled:opacity-50 transition-colors disabled:cursor-not-allowed cursor-pointer"
-                                title="Save Suggested Marks"
+                                className={`p-1.5 text-white rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
+                                  isSaved ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'
+                                }`}
+                                title={isSaved ? "Marks saved" : "Marks not saved"}
                               >
                                 {savingId === record._id ? (
                                   <div className="h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
@@ -250,6 +258,9 @@ const CollegeRecords = () => {
                                 )}
                               </button>
                             </div>
+                            {isSaved && (
+                              <span className="text-[10px] text-green-600 font-semibold leading-none">Marks saved</span>
+                            )}
                             {hasError && (
                               <span className="text-[10px] text-red-500 font-medium whitespace-nowrap">
                                 Max marks: {maxMarks}

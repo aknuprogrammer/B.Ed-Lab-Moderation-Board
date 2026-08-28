@@ -719,7 +719,18 @@ const Dashboard = () => {
                           )}
                         </td>
                         <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm text-right">
-                          {sub.status !== 'Evaluated' && (
+                          {sub.status === 'Evaluated' ? (
+                            <div className="flex flex-col items-center gap-1">
+                              <button
+                                disabled
+                                className="px-4 py-1.5 bg-green-600 text-white rounded-md font-medium opacity-100 cursor-not-allowed"
+                                title="Marks saved"
+                              >
+                                Saved
+                              </button>
+                              <span className="text-[10px] text-green-600 font-semibold leading-none">Marks saved</span>
+                            </div>
+                          ) : (
                             (() => {
                               const enteredScore = marks[sub._id]?.score;
                               const maxLimit = sub.maxMarks ?? sub.subjectId?.maxMarks ?? 100;
@@ -731,7 +742,8 @@ const Dashboard = () => {
                                 <button
                                   onClick={() => handleSubmitMarks(sub._id)}
                                   disabled={!enteredScore || hasError}
-                                  className="px-4 py-1.5 bg-teal-700 hover:bg-teal-800 disabled:bg-teal-300 text-white rounded-md font-medium transition-colors cursor-pointer"
+                                  className="px-4 py-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-md font-medium transition-colors cursor-pointer"
+                                  title="Marks not saved"
                                 >
                                   Submit
                                 </button>
