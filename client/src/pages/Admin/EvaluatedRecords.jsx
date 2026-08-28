@@ -87,7 +87,9 @@ const EvaluatedRecords = () => {
   const [papers, setPapers] = useState([]);
   const [paperApprovals, setPaperApprovals] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
+  const [supplyPage, setSupplyPage] = useState(1);
   const [paperPage, setPaperPage] = useState(1);
+  const [supplyPaperPage, setSupplyPaperPage] = useState(1);
   const [reallocateTarget, setReallocateTarget] = useState(null);
   const [toastMessage, setToastMessage] = useState('');
   
@@ -370,10 +372,10 @@ const EvaluatedRecords = () => {
   };
 
   const pagedRegularRecords = regularRecords.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
-  const pagedSupplyRecords = supplyRecords.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const pagedSupplyRecords = supplyRecords.slice((supplyPage - 1) * PAGE_SIZE, supplyPage * PAGE_SIZE);
 
   const pagedRegularPapers = regularPaperRows.slice((paperPage - 1) * PAGE_SIZE, paperPage * PAGE_SIZE);
-  const pagedSupplyPapers = supplyPaperRows.slice((paperPage - 1) * PAGE_SIZE, paperPage * PAGE_SIZE);
+  const pagedSupplyPapers = supplyPaperRows.slice((supplyPaperPage - 1) * PAGE_SIZE, supplyPaperPage * PAGE_SIZE);
 
   const evaluatedInFiltered = filteredRecords.filter(r => r.status === 'Evaluated');
   const isSubmissionsApproved = evaluatedInFiltered.length > 0 && evaluatedInFiltered.every(r => r.isApprovedByBOS === true);
@@ -400,7 +402,7 @@ const EvaluatedRecords = () => {
 
       <div className="flex border-b border-slate-200">
         <button
-          onClick={() => { setActiveTab('submissions'); setCurrentPage(1); }}
+          onClick={() => { setActiveTab('submissions'); setCurrentPage(1); setSupplyPage(1); }}
           className={`px-5 py-2.5 font-medium text-sm transition-colors border-b-2 cursor-pointer rounded-t-md ${activeTab === 'submissions'
             ? 'border-teal-600 text-teal-700 font-semibold'
             : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
@@ -409,7 +411,7 @@ const EvaluatedRecords = () => {
           Submissions List
         </button>
         <button
-          onClick={() => { setActiveTab('papers'); setPaperPage(1); }}
+          onClick={() => { setActiveTab('papers'); setPaperPage(1); setSupplyPaperPage(1); }}
           className={`px-5 py-2.5 font-medium text-sm transition-colors border-b-2 cursor-pointer rounded-t-md ${activeTab === 'papers'
             ? 'border-teal-600 text-teal-700 font-semibold'
             : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
@@ -431,7 +433,9 @@ const EvaluatedRecords = () => {
               onChange={(e) => {
                 setSelectedSemester(e.target.value);
                 setCurrentPage(1);
+                setSupplyPage(1);
                 setPaperPage(1);
+                setSupplyPaperPage(1);
               }}
               className="px-3 py-1.5 border border-slate-300 rounded-md focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none transition-all text-slate-800 bg-white cursor-pointer"
             >
@@ -447,6 +451,7 @@ const EvaluatedRecords = () => {
                 onChange={(e) => {
                   setSelectedStatus(e.target.value);
                   setCurrentPage(1);
+                  setSupplyPage(1);
                 }}
                 className="px-3 py-1.5 border border-slate-300 rounded-md focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none transition-all text-slate-800 bg-white cursor-pointer"
               >
@@ -467,7 +472,9 @@ const EvaluatedRecords = () => {
                 onChange={(e) => {
                   setSearchTerm(e.target.value);
                   setCurrentPage(1);
+                  setSupplyPage(1);
                   setPaperPage(1);
+                  setSupplyPaperPage(1);
                 }}
                 className="w-full pl-9 pr-3 py-1.5 border border-slate-300 rounded-md focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none transition-all text-slate-800 bg-white"
               />
@@ -569,6 +576,8 @@ const EvaluatedRecords = () => {
                 </tbody>
               </table>
             </div>
+            
+            <Pagination total={regularRecords.length} page={currentPage} onPage={setCurrentPage} />
 
             {/* Backlog Submissions */}
             <div className="p-4 bg-slate-50 border-y border-slate-200 flex items-center gap-2 mt-4">
@@ -647,7 +656,7 @@ const EvaluatedRecords = () => {
               </table>
             </div>
 
-            <Pagination total={Math.max(regularRecords.length, supplyRecords.length)} page={currentPage} onPage={setCurrentPage} />
+            <Pagination total={supplyRecords.length} page={supplyPage} onPage={setSupplyPage} />
           </>
         ) : (
           <>
@@ -710,6 +719,8 @@ const EvaluatedRecords = () => {
               </table>
             </div>
 
+            <Pagination total={regularPaperRows.length} page={paperPage} onPage={setPaperPage} />
+
             {/* Backlog Papers Table */}
             <div className="p-4 bg-slate-50 border-y border-slate-200 flex items-center gap-2 mt-4">
               <span className="p-1 bg-white rounded shadow-sm border border-slate-200">
@@ -770,7 +781,7 @@ const EvaluatedRecords = () => {
               </table>
             </div>
 
-            <Pagination total={Math.max(regularPaperRows.length, supplyPaperRows.length)} page={paperPage} onPage={setPaperPage} />
+            <Pagination total={supplyPaperRows.length} page={supplyPaperPage} onPage={setSupplyPaperPage} />
           </>
         )}
       </div>

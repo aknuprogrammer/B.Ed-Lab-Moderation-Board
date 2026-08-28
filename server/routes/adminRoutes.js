@@ -49,7 +49,9 @@ router.post('/assign-evaluator', adminController.assignToEvaluator);
 
 router.get('/subject-allocation-stats', adminController.getSubjectAllocationStats);
 router.get('/subjects-with-submissions', adminController.getSubjectsWithSubmissions);
+router.get('/evaluator-assignments-grouped', adminController.getEvaluatorAssignmentsGrouped);
 router.post('/allocate-subject-bulk', adminController.allocateSubjectBulk);
+router.post('/extend-evaluator-deadline', adminController.extendEvaluatorDeadline);
 
 router.get('/backlog-candidates', adminController.getBacklogCandidates);
 router.post('/bulk-assign-backlogs', adminController.bulkAssignBacklogs);
@@ -58,6 +60,7 @@ router.get('/session-logs', adminController.getSessionLogs);
 router.post('/college-passwords', systemAdminOnly, adminController.updateCollegePasswords);
 router.get('/paper-approvals', adminController.getPaperApprovals);
 router.post('/students/:id/reset-registration', adminController.resetStudentRegistration);
+router.post('/reset-all-allocations', adminController.resetAllAllocations);
 
 // Activity Logs
 // Exports

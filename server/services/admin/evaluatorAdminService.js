@@ -436,51 +436,57 @@ exports.getSubjectAllocationStats = async ({ subjectId, groupSubjectName, subjec
     }
   }
 
-  const total = await Assignment.countDocuments(submittedQuery);
-  const unallocatedAssignments = await Assignment.find({ ...submittedQuery, evaluatorId: null })
+  const allAssignmentsForStats = await Assignment.find(submittedQuery)
     .populate('studentId', 'collegeId')
-    .lean();
-
-  const unallocated = unallocatedAssignments.length;
-  const allocated = total - unallocated;
-
-  const collegeCounts = {};
-  unallocatedAssignments.forEach(a => {
-    const colId = a.studentId?.collegeId?.toString();
-    if (colId) {
-      collegeCounts[colId] = (collegeCounts[colId] || 0) + 1;
-    }
-  });
-
-  const allocatedAssignments = await Assignment.find({ ...submittedQuery, evaluatorId: { $ne: null } })
     .populate('evaluatorId', 'fullName regdNo _id')
     .lean();
 
+  let total = 0;
+  let allocated = 0;
+  let unallocated = 0;
+  
+  const collegeStats = {}; // { [collegeId]: { total, allocated, pending } }
   const evaluatorStatsMap = {};
-  allocatedAssignments.forEach(a => {
-    if (!a.evaluatorId) return;
-    const evId = a.evaluatorId._id.toString();
-    if (!evaluatorStatsMap[evId]) {
-      evaluatorStatsMap[evId] = {
-        _id: a.evaluatorId._id,
-        fullName: a.evaluatorId.fullName,
-        regdNo: a.evaluatorId.regdNo,
-        count: 0
-      };
+
+  allAssignmentsForStats.forEach(a => {
+    total++;
+    const colId = a.studentId?.collegeId?.toString();
+    if (colId) {
+      if (!collegeStats[colId]) collegeStats[colId] = { total: 0, allocated: 0, pending: 0 };
+      collegeStats[colId].total++;
     }
-    evaluatorStatsMap[evId].count += 1;
+
+    if (a.evaluatorId) {
+      allocated++;
+      if (colId) collegeStats[colId].allocated++;
+      
+      const evId = a.evaluatorId._id.toString();
+      if (!evaluatorStatsMap[evId]) {
+        evaluatorStatsMap[evId] = {
+          _id: a.evaluatorId._id,
+          fullName: a.evaluatorId.fullName,
+          regdNo: a.evaluatorId.regdNo,
+          count: 0
+        };
+      }
+      evaluatorStatsMap[evId].count++;
+    } else {
+      unallocated++;
+      if (colId) collegeStats[colId].pending++;
+    }
   });
 
   return {
     total,
     allocated,
     unallocated,
-    collegeCounts,
+    collegeStats,
+    collegeCounts: Object.fromEntries(Object.entries(collegeStats).map(([k, v]) => [k, v.pending])), // for backward compatibility
     evaluators: Object.values(evaluatorStatsMap)
   };
 };
 
-exports.allocateSubjectBulk = async ({ subjectId, groupSubjectName, subjects, evaluatorId, splitMethod, count, collegeIds, rollStart, rollEnd, valuationDeadline, mode = 'Regular' }) => {
+exports.allocateSubjectBulk = async ({ subjectId, groupSubjectName, subjects, evaluatorId, splitMethod, count, collegeAllocations, rollStart, rollEnd, valuationDeadline, mode = 'Regular' }) => {
   const evaluator = await User.findById(evaluatorId);
   if (!evaluator) throw new AppError('Evaluator not found', 404);
 
@@ -512,10 +518,18 @@ exports.allocateSubjectBulk = async ({ subjectId, groupSubjectName, subjects, ev
 
     if (splitMethod === 'COUNT' && count > 0) {
       assignmentsToUpdate = await Assignment.find(query).limit(Number(count)).select('_id');
-    } else if (splitMethod === 'COLLEGE' && collegeIds && collegeIds.length > 0) {
-      const students = await User.find({ role: 'STUDENT', collegeId: { $in: collegeIds } }).select('_id');
-      query.studentId = { $in: students.map(st => st._id) };
-      assignmentsToUpdate = await Assignment.find(query).select('_id');
+    } else if (splitMethod === 'COLLEGE' && collegeAllocations && collegeAllocations.length > 0) {
+      for (const ca of collegeAllocations) {
+        const students = await User.find({ role: 'STUDENT', collegeId: ca.id }).select('_id');
+        const colQuery = { ...query, studentId: { $in: students.map(st => st._id) } };
+        let colAssignments = [];
+        if (ca.count && Number(ca.count) > 0) {
+          colAssignments = await Assignment.find(colQuery).limit(Number(ca.count)).select('_id');
+        } else {
+          colAssignments = await Assignment.find(colQuery).select('_id');
+        }
+        assignmentsToUpdate.push(...colAssignments);
+      }
     } else if (splitMethod === 'RANGE') {
       const studentQuery = { role: 'STUDENT', regdNo: {} };
       if (rollStart) studentQuery.regdNo.$gte = rollStart.trim();
@@ -655,4 +669,125 @@ exports.reallocateEvaluator = async ({ assignmentId, newEvaluatorId, valuationDe
   }
 
   return { message: 'Re-allocation successful', assignment, diffString };
+};
+
+exports.extendEvaluatorDeadline = async ({ evaluatorIds, subjects, valuationDeadline, mode }) => {
+  if (!evaluatorIds || !Array.isArray(evaluatorIds) || evaluatorIds.length === 0) {
+    throw new AppError('Evaluator IDs are required.', 400);
+  }
+  if (!valuationDeadline) {
+    throw new AppError('Valuation deadline is required.', 400);
+  }
+  
+  let subjectQuery = [];
+  if (subjects && Array.isArray(subjects) && subjects.length > 0) {
+    subjects.forEach(sub => {
+      if (sub.subjectId) {
+        subjectQuery.push({ subjectId: sub.subjectId });
+      } else if (sub.groupSubjectName) {
+        subjectQuery.push({ groupSubjectName: sub.groupSubjectName });
+      }
+    });
+  }
+
+  const query = {
+    evaluatorId: { $in: evaluatorIds }
+  };
+
+  if (mode === 'Supply') {
+    query.mode = 'Supply';
+  } else {
+    query.$or = [{ mode: 'Regular' }, { mode: { $exists: false } }, { mode: null }];
+  }
+
+  if (subjectQuery.length > 0) {
+    // We need to intersect the mode condition with the subject condition
+    // So we use $and
+    const finalQuery = {
+      $and: [
+        query,
+        { $or: subjectQuery }
+      ]
+    };
+    
+    const result = await Assignment.updateMany(
+      finalQuery,
+      { $set: { valuationDeadline: new Date(valuationDeadline) } }
+    );
+    return { message: `Successfully extended deadline for ${result.modifiedCount} assignment(s).`, modifiedCount: result.modifiedCount };
+  } else {
+    const result = await Assignment.updateMany(
+      query,
+      { $set: { valuationDeadline: new Date(valuationDeadline) } }
+    );
+    return { message: `Successfully extended deadline for ${result.modifiedCount} assignment(s).`, modifiedCount: result.modifiedCount };
+  }
+};
+
+exports.getEvaluatorAssignmentsGrouped = async () => {
+  return await Assignment.aggregate([
+    { $match: { evaluatorId: { $ne: null } } },
+    { $lookup: { from: 'users', localField: 'evaluatorId', foreignField: '_id', as: 'evaluator' } },
+    { $unwind: '$evaluator' },
+    { $lookup: { from: 'subjects', localField: 'subjectId', foreignField: '_id', as: 'subject' } },
+    { $unwind: { path: '$subject', preserveNullAndEmptyArrays: true } },
+    { $lookup: { from: 'users', localField: 'studentId', foreignField: '_id', as: 'student' } },
+    { $unwind: { path: '$student', preserveNullAndEmptyArrays: true } },
+    {
+      $group: {
+        _id: {
+          evaluatorId: '$evaluatorId',
+          subjectId: '$subjectId',
+          groupSubjectName: '$groupSubjectName',
+          mode: '$mode'
+        },
+        evaluatorName: { $first: '$evaluator.fullName' },
+        evaluatorRegdNo: { $first: '$evaluator.regdNo' },
+        subjectName: { $first: '$subject.subName' },
+        students: {
+          $push: {
+            regdNo: '$student.regdNo',
+            fullName: '$student.fullName'
+          }
+        }
+      }
+    },
+    { $sort: { 'evaluatorName': 1, 'subjectName': 1 } }
+  ]);
+};
+
+exports.resetAllAllocations = async () => {
+  // 1. Reset all assignments
+  // Unset evaluatorId, deadline, score, feedback, suggestedMarks.
+  const resultAssignments = await Assignment.updateMany(
+    {}, // all assignments
+    {
+      $set: { evaluatorId: null },
+      $unset: {
+        valuationDeadline: 1,
+        score: 1,
+        feedback: 1
+      }
+    }
+  );
+
+  // Set Evaluated ones to Pending (per user request)
+  await Assignment.updateMany(
+    { status: 'Evaluated' },
+    { $set: { status: 'Pending' } }
+  );
+
+  // 2. Reset all evaluator users
+  const resultEvaluators = await User.updateMany(
+    { role: 'EVALUATOR' },
+    {
+      $set: { subjects: [], groupSubjects: [] }
+    }
+  );
+
+  return {
+    message: 'All allocations have been reset successfully.',
+    assignmentsUpdated: resultAssignments.modifiedCount,
+    evaluatorsUpdated: resultEvaluators.modifiedCount
+  };
 };

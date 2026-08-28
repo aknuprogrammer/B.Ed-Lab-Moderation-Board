@@ -879,7 +879,7 @@ exports.promoteStudents = async ({ studentIds, toSemester }) => {
   return { message: `${result.modifiedCount} student(s) promoted to ${toSemester} successfully.` };
 };
 
-exports.bulkUpdateAssignmentDeadlines = async ({ assignmentIds, deadline, suggestedMarksDeadline }) => {
+exports.bulkUpdateAssignmentDeadlines = async ({ assignmentIds, deadline, suggestedMarksDeadline, valuationDeadline }) => {
   const updateFields = {};
   if (deadline !== undefined) {
     if (deadline === null || deadline === '') {
@@ -893,6 +893,13 @@ exports.bulkUpdateAssignmentDeadlines = async ({ assignmentIds, deadline, sugges
       updateFields.suggestedMarksDeadline = null;
     } else {
       updateFields.suggestedMarksDeadline = new Date(suggestedMarksDeadline);
+    }
+  }
+  if (valuationDeadline !== undefined) {
+    if (valuationDeadline === null || valuationDeadline === '') {
+      updateFields.valuationDeadline = null;
+    } else {
+      updateFields.valuationDeadline = new Date(valuationDeadline);
     }
   }
 

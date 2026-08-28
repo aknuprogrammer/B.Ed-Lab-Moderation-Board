@@ -251,6 +251,33 @@ exports.assignSubjects = async (req, res) => {
   }
 };
 
+exports.extendEvaluatorDeadline = async (req, res) => {
+  try {
+    const result = await evaluatorAdminService.extendEvaluatorDeadline(req.body);
+
+    activityLogService.logActivity({
+      userId: req.user._id,
+      userRole: req.user.role,
+      actionType: 'EXTEND_DEADLINE',
+      entityType: 'Assignment',
+      details: { description: `Extended evaluation deadline for ${req.body.evaluatorIds?.length || 0} evaluator(s).` }
+    }).catch(err => console.error("Activity logging failed:", err));
+
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ message: error.message });
+  }
+};
+
+exports.getEvaluatorAssignmentsGrouped = async (req, res) => {
+  try {
+    const result = await evaluatorAdminService.getEvaluatorAssignmentsGrouped();
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ message: error.message });
+  }
+};
+
 exports.assignToEvaluator = async (req, res) => {
   try {
     const result = await evaluatorAdminService.assignToEvaluator(req.body);
@@ -551,18 +578,19 @@ exports.getPaperApprovals = async (req, res) => {
 
 exports.bulkUpdateAssignmentDeadlines = async (req, res) => {
   try {
-    const { assignmentIds, deadline, suggestedMarksDeadline } = req.body;
+    const { assignmentIds, deadline, suggestedMarksDeadline, valuationDeadline } = req.body;
     if (!assignmentIds || !Array.isArray(assignmentIds) || assignmentIds.length === 0) {
       return res.status(400).json({ message: 'Assignment IDs must be a non-empty array.' });
     }
-    if (deadline === undefined && suggestedMarksDeadline === undefined) {
+    if (deadline === undefined && suggestedMarksDeadline === undefined && valuationDeadline === undefined) {
       return res.status(400).json({ message: 'At least one deadline field must be provided for update.' });
     }
 
     const result = await masterDataService.bulkUpdateAssignmentDeadlines({
       assignmentIds,
       deadline,
-      suggestedMarksDeadline
+      suggestedMarksDeadline,
+      valuationDeadline
     });
 
     activityLogService.logActivity({
@@ -621,5 +649,15 @@ exports.getMissingSuggestedMarksDetails = async (req, res) => {
     res.json(result);
   } catch (error) {
     res.status(error.statusCode || 500).json({ message: error.message });
+  }
+};
+
+exports.resetAllAllocations = async (req, res) => {
+  try {
+    const result = await evaluatorAdminService.resetAllAllocations();
+    res.status(200).json(result);
+  } catch (error) {
+    const statusCode = error.statusCode || 500;
+    res.status(statusCode).json({ message: error.message });
   }
 };
