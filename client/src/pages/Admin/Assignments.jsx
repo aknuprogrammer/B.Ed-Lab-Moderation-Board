@@ -146,14 +146,14 @@ const AssignmentTable = ({
               <th className="px-4 py-3 text-left whitespace-nowrap">Pages</th>
               <th className="px-4 py-3 text-left whitespace-nowrap">Record Submission Deadline</th>
               <th className="px-4 py-3 text-left whitespace-nowrap">Suggested Marks Deadline</th>
-              {/* <th className="px-4 py-3 text-left whitespace-nowrap">Assigned Evaluator</th> */}
               <th className="px-4 py-3 text-left whitespace-nowrap">Status</th>
+              <th className="px-4 py-3 text-center whitespace-nowrap">Action</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan="11" className="px-6 py-12 text-center text-slate-500">
+                <td colSpan="12" className="px-6 py-12 text-center text-slate-500">
                   <div className="flex flex-col items-center justify-center gap-2">
                     <RefreshCw className="h-6 w-6 text-teal-600 animate-spin" />
                     <span className="text-xs font-medium">Loading records...</span>
@@ -236,12 +236,27 @@ const AssignmentTable = ({
                       )}
                     </div>
                   </td>
+                  <td className="px-4 py-2.5 text-center">
+                    {assignment.filePath ? (
+                      <a
+                        href={`${API_BASE_URL}${assignment.filePath}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-teal-50 hover:bg-teal-600 text-teal-700 hover:text-white border border-teal-200 hover:border-teal-600 rounded-md text-xs font-semibold transition-all cursor-pointer shadow-sm"
+                        title="View Record PDF"
+                      >
+                        <FileText className="h-4 w-4" /> View
+                      </a>
+                    ) : (
+                      <span className="text-slate-400 italic text-xs">—</span>
+                    )}
+                  </td>
                 </tr>
               ))
             )}
             {!loading && data.length === 0 && (
               <tr>
-                <td colSpan="11" className="px-6 py-8 text-center text-slate-400">
+                <td colSpan="12" className="px-6 py-8 text-center text-slate-400">
                   No assignments have been generated yet.
                 </td>
               </tr>

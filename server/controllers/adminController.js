@@ -398,6 +398,11 @@ exports.getAssignmentData = async (req, res) => {
 exports.getAssignments = async (req, res) => {
   try {
     const result = await assignmentService.getAssignments();
+    if (result && result.length > 0) {
+      console.log('Sending assignments, first record filePath:', result[0].filePath);
+      const withFilePath = result.filter(r => r.filePath).length;
+      console.log(`Total assignments: ${result.length}, with filePath: ${withFilePath}`);
+    }
     res.json(result);
   } catch (error) {
     res.status(error.statusCode || 500).json({ message: error.message });

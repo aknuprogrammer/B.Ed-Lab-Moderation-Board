@@ -242,6 +242,7 @@ exports.getAssignments = async () => {
         score: 1,
         feedback: 1,
         studentNote: 1,
+        filePath: 1,
         createdAt: 1,
         updatedAt: 1,
         'studentId._id': 1,

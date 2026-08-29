@@ -88,11 +88,49 @@ exports.submitAssignment = async ({ assignmentId, file, user, note, extractedTex
       if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
       throw new AppError(inspectionResult.reason || 'Digitally pasted signature image overlay detected on Certificate Page. Please scan and upload the physical paper record signed by your Principal.', 400);
     }
+    const pdfParse = require('pdf-parse');
+    const pdfData = await pdfParse(dataBuffer, { max: 2 });
+    const extractedUpper = (pdfData.text || '').toUpperCase();
+    const cleanExtracted = extractedUpper.replace(/[^A-Z0-9]/g, '');
     
-    // Server-side text parsing has been removed.
-    // The frontend strictly verifies the QR code on every single page 
-    // to guarantee it belongs to the correct student and subject.
+    // 1. Verify Regd No
+    const regdNo = user.regdNo ? user.regdNo.toUpperCase().replace(/[^A-Z0-9]/g, '') : '';
+    if (regdNo && !cleanExtracted.includes(regdNo)) {
+      if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+      throw new AppError(`Document Verification Failed: We could not find your Registration Number (${user.regdNo}) on the certificate page. Please ensure you are uploading your own record.`, 400);
+    }
     
+    // 2. Verify Subject Code or Name
+    const subCode = assignment.subjectId?.subCode ? assignment.subjectId.subCode.toUpperCase().replace(/[^A-Z0-9]/g, '') : '';
+    const subName = assignment.groupSubjectName || assignment.subjectId?.subName || '';
+    
+    let subjectMatched = false;
+    
+    if (subCode && subCode.length > 2 && cleanExtracted.includes(subCode)) {
+      subjectMatched = true;
+    } else if (subName) {
+      const words = subName.toUpperCase().split(/[\s\W]+/).filter(w => w.length > 3);
+      if (words.length > 0) {
+        let matchedWords = 0;
+        for (const w of words) {
+           if (extractedUpper.includes(w)) matchedWords++;
+        }
+        if (matchedWords / words.length >= 0.5) {
+           subjectMatched = true;
+        }
+      } else {
+        // If no long words, fallback to matching the raw string (ignoring spaces/symbols)
+        const cleanSubName = subName.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        if (cleanSubName && cleanExtracted.includes(cleanSubName)) {
+          subjectMatched = true;
+        }
+      }
+    }
+    
+    if (!subjectMatched) {
+      if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+      throw new AppError(`Document Verification Failed: We could not find the Subject Code or Name for this assignment on the certificate pages. Please ensure you are uploading the correct subject record.`, 400);
+    }
   } catch (parseError) {
     if (parseError.statusCode) throw parseError;
     console.error('PDF Parse Error:', parseError);

@@ -221,11 +221,19 @@ const AssignmentTable = ({ title, data, currentPage, setCurrentPage, handleGener
                             title={isPastDeadline && assignment.status !== 'Evaluated' ? "Deadline has passed" : ""}
                           >
                             <Upload className="h-3 w-3 mr-1.5" />
-                            {isLocked 
-                              ? 'Locked' 
-                              : assignment.status === 'Submitted' 
-                                ? 'Re-upload' 
-                                : 'Upload PDF'}
+                            {(() => {
+                              if (isLocked) return 'Locked';
+                              if (assignment.status === 'Submitted') {
+                                const isNonSem2 = String(assignment.subjectId?.semester) !== '2';
+                                const cutoffDate = new Date('2026-08-28T00:00:00Z');
+                                const submittedAt = assignment.submittedAt ? new Date(assignment.submittedAt) : new Date(0);
+                                if (isNonSem2 && submittedAt < cutoffDate) {
+                                  return 'Re-upload';
+                                }
+                                return 'Update';
+                              }
+                              return 'Upload PDF';
+                            })()}
                           </button>
                         </div>
                       );
