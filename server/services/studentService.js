@@ -93,43 +93,56 @@ exports.submitAssignment = async ({ assignmentId, file, user, note, extractedTex
     const extractedUpper = (pdfData.text || '').toUpperCase();
     const cleanExtracted = extractedUpper.replace(/[^A-Z0-9]/g, '');
     
-    // 1. Verify Regd No
-    const regdNo = user.regdNo ? user.regdNo.toUpperCase().replace(/[^A-Z0-9]/g, '') : '';
-    if (regdNo && !cleanExtracted.includes(regdNo)) {
-      if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
-      throw new AppError(`Document Verification Failed: We could not find your Registration Number (${user.regdNo}) on the certificate page. Please ensure you are uploading your own record.`, 400);
+    // Only enforce verification if there is enough readable text (e.g., not an image-only scan)
+    // If pdf-parse extracted text is too short, fallback to the OCR text provided by the frontend
+    if (cleanExtracted.length <= 20 && clientExtractedText) {
+      extractedUpper = clientExtractedText.toUpperCase();
+      cleanExtracted = extractedUpper.replace(/[^A-Z0-9]/g, '');
     }
-    
-    // 2. Verify Subject Code or Name
-    const subCode = assignment.subjectId?.subCode ? assignment.subjectId.subCode.toUpperCase().replace(/[^A-Z0-9]/g, '') : '';
-    const subName = assignment.groupSubjectName || assignment.subjectId?.subName || '';
-    
-    let subjectMatched = false;
-    
-    if (subCode && subCode.length > 2 && cleanExtracted.includes(subCode)) {
-      subjectMatched = true;
-    } else if (subName) {
-      const words = subName.toUpperCase().split(/[\s\W]+/).filter(w => w.length > 3);
-      if (words.length > 0) {
-        let matchedWords = 0;
-        for (const w of words) {
-           if (extractedUpper.includes(w)) matchedWords++;
-        }
-        if (matchedWords / words.length >= 0.5) {
-           subjectMatched = true;
-        }
-      } else {
-        // If no long words, fallback to matching the raw string (ignoring spaces/symbols)
-        const cleanSubName = subName.toUpperCase().replace(/[^A-Z0-9]/g, '');
-        if (cleanSubName && cleanExtracted.includes(cleanSubName)) {
-          subjectMatched = true;
+
+    if (cleanExtracted.length > 20) {
+      // 1. Verify Regd No
+      const regdNo = user.regdNo ? user.regdNo.toUpperCase().replace(/[^A-Z0-9]/g, '') : '';
+      if (regdNo && !cleanExtracted.includes(regdNo)) {
+        if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+        throw new AppError(`Document Verification Failed: We could not find your Registration Number (${user.regdNo}) on the certificate page. Please ensure you are uploading your own record.`, 400);
+      }
+      
+      // 2. Verify Subject Code or Name
+      const subCode = assignment.subjectId?.subCode ? assignment.subjectId.subCode.toUpperCase().replace(/[^A-Z0-9]/g, '') : '';
+      const subName = assignment.groupSubjectName || assignment.subjectId?.subName || '';
+      
+      let subjectMatched = false;
+      
+      if (subCode && subCode.length > 2 && cleanExtracted.includes(subCode)) {
+        subjectMatched = true;
+      } else if (subName) {
+        const words = subName.toUpperCase().split(/[\s\W]+/).filter(w => w.length > 3);
+        if (words.length > 0) {
+          let matchedWords = 0;
+          for (const w of words) {
+             if (extractedUpper.includes(w)) matchedWords++;
+          }
+          if (matchedWords / words.length >= 0.5) {
+             subjectMatched = true;
+          }
+        } else {
+          // If no long words, fallback to matching the raw string (ignoring spaces/symbols)
+          const cleanSubName = subName.toUpperCase().replace(/[^A-Z0-9]/g, '');
+          if (cleanSubName && cleanExtracted.includes(cleanSubName)) {
+            subjectMatched = true;
+          }
         }
       }
-    }
-    
-    if (!subjectMatched) {
+      
+      if (!subjectMatched) {
+        if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+        throw new AppError(`Document Verification Failed: We could not find the Subject Code or Name for this assignment on the certificate pages. Please ensure you are uploading the correct subject record.`, 400);
+      }
+    } else {
+      // If even OCR text is too short, we reject it as unreadable
       if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
-      throw new AppError(`Document Verification Failed: We could not find the Subject Code or Name for this assignment on the certificate pages. Please ensure you are uploading the correct subject record.`, 400);
+      throw new AppError(`Document Verification Failed: The document is entirely unreadable. Please ensure you scan your record clearly.`, 400);
     }
   } catch (parseError) {
     if (parseError.statusCode) throw parseError;

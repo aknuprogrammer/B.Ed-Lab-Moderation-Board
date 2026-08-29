@@ -268,12 +268,47 @@ const UploadRecordModal = ({ assignment, onClose, onSuccess }) => {
   const [note, setNote] = useState('');
   const user = JSON.parse(localStorage.getItem('user') || '{}');
 
-  const verifyQRCodesInPDF = async (fileObj) => {
+  const extractTextOrOCR = async (fileObj) => {
     try {
-      // Barcode verification temporarily bypassed as requested
-      return { success: true };
+      const arrayBuffer = await fileObj.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      
+      let fullText = '';
+      const numPages = Math.min(pdf.numPages, 2);
+      
+      for (let i = 1; i <= numPages; i++) {
+        const page = await pdf.getPage(i);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items.map(item => item.str).join(' ');
+        fullText += pageText + ' ';
+      }
+      
+      // If native text is long enough, return it (it's not an image-only scan)
+      const cleanText = fullText.replace(/[^a-zA-Z0-9]/g, '');
+      if (cleanText.length > 20) {
+        return { success: true, text: fullText }; 
+      }
+      
+      // If native text is empty (Image-only PDF), run OCR on the first page!
+      setScanProgress('Running OCR to verify scanned document... This may take a few seconds.');
+      const page = await pdf.getPage(1);
+      const viewport = page.getViewport({ scale: 1.5 });
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      canvas.height = viewport.height;
+      canvas.width = viewport.width;
+      
+      await page.render({ canvasContext: context, viewport: viewport }).promise;
+      const imageData = canvas.toDataURL('image/png');
+      
+      const { createWorker } = await import('tesseract.js');
+      const worker = await createWorker('eng');
+      const { data: { text } } = await worker.recognize(imageData);
+      await worker.terminate();
+      
+      return { success: true, text };
     } catch (err) {
-      console.error('Barcode Verification Error:', err);
+      console.error('Text Extraction/OCR Error:', err);
       return { success: false, message: 'Failed to process PDF file. Please ensure it is a valid document.' };
     }
   };
@@ -313,9 +348,9 @@ const UploadRecordModal = ({ assignment, onClose, onSuccess }) => {
 
     setUploading(true);
     setError('');
-    setScanProgress('Initializing Barcode verification...');
+    setScanProgress('Verifying document...');
 
-    const verificationResult = await verifyQRCodesInPDF(file);
+    const verificationResult = await extractTextOrOCR(file);
     setScanProgress('');
     
     if (!verificationResult.success) {
@@ -329,7 +364,7 @@ const UploadRecordModal = ({ assignment, onClose, onSuccess }) => {
     if (note.trim()) {
       formData.append('note', note.trim());
     }
-    formData.append('extractedText', 'QR_VERIFIED_SUCCESS');
+    formData.append('extractedText', verificationResult.text || 'QR_VERIFIED_SUCCESS');
 
     try {
       const token = localStorage.getItem('token');
