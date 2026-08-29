@@ -150,6 +150,9 @@ const Overview = () => {
   const missingSuggestedMarksByCollege = stats?.missingSuggestedMarksByCollege || [];
   const pendingReuploadsByCollege = stats?.pendingReuploadsByCollege || [];
 
+  const totalMissingSuggestedMarks = missingSuggestedMarksByCollege.reduce((sum, col) => sum + (col.missingCount || 0), 0);
+  const totalPendingReuploads = pendingReuploadsByCollege.reduce((sum, col) => sum + (col.pendingCount || 0), 0);
+
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-8">
       {/* Header Banner */}
@@ -513,7 +516,7 @@ const Overview = () => {
       {/* Missing Suggested Marks Section */}
       <div className="space-y-4">
         <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500">
-          Missing Suggested Marks (Action Required by Principals)
+          Missing Suggested Marks (Action Required by Principals) - {missingSuggestedMarksByCollege.length} Colleges ({totalMissingSuggestedMarks} Records)
         </h2>
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
           <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center gap-3">
@@ -577,7 +580,7 @@ const Overview = () => {
       {/* Pending Reuploads Section */}
       <div className="space-y-4 mt-8">
         <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500">
-          Pending Re-uploads (Action Required by Principals)
+          Pending Re-uploads (Action Required by Principals) - {pendingReuploadsByCollege.length} Colleges ({totalPendingReuploads} Records)
         </h2>
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
           <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center gap-3">

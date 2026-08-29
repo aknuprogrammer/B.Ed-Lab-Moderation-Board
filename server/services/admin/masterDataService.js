@@ -1113,3 +1113,80 @@ exports.getMissingSuggestedMarksDetails = async (collegeId) => {
   
   return records;
 };
+
+exports.getPendingReuploadsDetails = async (collegeId) => {
+  const mongoose = require('mongoose');
+  const Subject = require('../../models/MasterData').Subject;
+  const Assignment = require('../../models/Assignment');
+  const cutoffDate = new Date('2026-08-28T00:00:00Z');
+  const otherSemSubjects = await Subject.find({ semester: { $ne: '2' } }).distinct('_id');
+
+  const records = await Assignment.aggregate([
+    {
+      $match: {
+        $or: [
+          { status: 'Pending' },
+          { isAbsent: true },
+          { 
+            subjectId: { $in: otherSemSubjects }, 
+            status: { $in: ['Submitted', 'Evaluated'] }, 
+            submittedAt: { $lt: cutoffDate } 
+          }
+        ]
+      }
+    },
+    {
+      $lookup: {
+        from: 'users',
+        localField: 'studentId',
+        foreignField: '_id',
+        as: 'student'
+      }
+    },
+    { $unwind: '$student' },
+    {
+      $match: {
+        'student.collegeId': new mongoose.Types.ObjectId(collegeId)
+      }
+    },
+    {
+      $lookup: {
+        from: 'subjects',
+        localField: 'subjectId',
+        foreignField: '_id',
+        as: 'subject'
+      }
+    },
+    {
+      $unwind: {
+        path: '$subject',
+        preserveNullAndEmptyArrays: true
+      }
+    },
+    {
+      $project: {
+        _id: 1,
+        'student.fullName': 1,
+        'student.regdNo': 1,
+        'subject.subName': 1,
+        'subject.subCode': 1,
+        groupSubjectName: 1,
+        status: 1
+      }
+    }
+  ]);
+
+  records.sort((a, b) => {
+    const regA = String(a.student?.regdNo || '');
+    const regB = String(b.student?.regdNo || '');
+    return regA.localeCompare(regB, undefined, { numeric: true, sensitivity: 'base' });
+  });
+
+  return records.map((r, index) => ({
+    sNo: index + 1,
+    regdNo: r.student?.regdNo,
+    name: r.student?.fullName,
+    subject: r.groupSubjectName || r.subject?.subName || r.subject?.subCode || 'N/A',
+    status: r.status
+  }));
+};
