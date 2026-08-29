@@ -150,9 +150,21 @@ exports.getPendingStudents = async (collegeId, { courseId, semester }) => {
 
   const studentIds = students.map(s => s._id);
 
+  const Subject = require('../../models/MasterData').Subject;
+  const cutoffDate = new Date('2026-08-28T00:00:00Z');
+  const otherSemSubjects = await Subject.find({ semester: { $ne: '2' } }).distinct('_id');
+
   const pendingAssignments = await Assignment.find({
     studentId: { $in: studentIds },
-    status: 'Pending'
+    $or: [
+      { status: 'Pending' },
+      { isAbsent: true },
+      { 
+        subjectId: { $in: otherSemSubjects }, 
+        status: { $in: ['Submitted', 'Evaluated'] }, 
+        submittedAt: { $lt: cutoffDate } 
+      }
+    ]
   })
     .populate('subjectId', 'subCode subName aliasName createdAt semester')
     .lean();
@@ -224,10 +236,20 @@ exports.getCollegeRecords = async (collegeId) => {
     .sort({ submittedAt: -1 })
     .lean();
 
+  const cutoffDate = new Date('2026-08-28T00:00:00Z');
   const filteredAssignments = assignments.filter(asg => {
     if (asg.mode === 'Supply') return true;
     if (!asg.studentId || !asg.subjectId) return false;
-    return String(asg.subjectId.semester) === String(asg.studentId.currentSemester);
+    if (String(asg.subjectId.semester) !== String(asg.studentId.currentSemester)) return false;
+
+    if (String(asg.subjectId.semester) !== '2') {
+      const submissionDate = new Date(asg.submittedAt);
+      if (submissionDate < cutoffDate) {
+        return false;
+      }
+    }
+
+    return true;
   });
 
   filteredAssignments.sort((a, b) => {

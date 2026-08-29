@@ -933,23 +933,42 @@ exports.getDashboardStats = async (collegeId) => {
     recordFilter.studentId = { $in: studentIds };
   }
 
+  const cutoffDate = new Date('2026-08-28T00:00:00Z');
+  
+  // Find subject IDs by semester
+  const sem2Subjects = await Subject.find({ semester: '2' }).distinct('_id');
+  const otherSemSubjects = await Subject.find({ semester: { $ne: '2' } }).distinct('_id');
+
   const totalRecords = await Assignment.countDocuments(recordFilter);
-  const totalRecordsSubmitted = await Assignment.countDocuments({
+  
+  // Semester 2 uses standard submitted logic
+  const sem2SubmittedCount = await Assignment.countDocuments({
     ...recordFilter,
+    subjectId: { $in: sem2Subjects },
     status: { $in: ['Submitted', 'Evaluated'] }
   });
-  const totalRecordsPending = await Assignment.countDocuments({
+
+  // Other semesters require submittedAt to be >= cutoffDate (Re-upload logic)
+  const otherSemReuploadedCount = await Assignment.countDocuments({
     ...recordFilter,
-    status: 'Pending'
+    subjectId: { $in: otherSemSubjects },
+    status: { $in: ['Submitted', 'Evaluated'] },
+    submittedAt: { $gte: cutoffDate }
   });
+
+  const totalRecordsSubmitted = sem2SubmittedCount + otherSemReuploadedCount;
+  const totalRecordsPending = totalRecords - totalRecordsSubmitted;
 
   const missingSuggestedMarksByCollege = await Assignment.aggregate([
     {
       $match: {
         ...recordFilter,
-        status: { $in: ['Submitted', 'Evaluated'] },
         suggestedMarks: null,
-        isAbsent: { $ne: true }
+        isAbsent: { $ne: true },
+        $or: [
+          { subjectId: { $in: sem2Subjects }, status: { $in: ['Submitted', 'Evaluated'] } },
+          { subjectId: { $in: otherSemSubjects }, status: { $in: ['Submitted', 'Evaluated'] }, submittedAt: { $gte: cutoffDate } }
+        ]
       }
     },
     {
@@ -981,6 +1000,50 @@ exports.getDashboardStats = async (collegeId) => {
     { $sort: { missingCount: -1 } }
   ]);
 
+  const pendingReuploadsByCollege = await Assignment.aggregate([
+    {
+      $match: {
+        ...recordFilter,
+        $or: [
+          { status: 'Pending' },
+          { isAbsent: true },
+          { 
+            subjectId: { $in: otherSemSubjects }, 
+            status: { $in: ['Submitted', 'Evaluated'] }, 
+            submittedAt: { $lt: cutoffDate } 
+          }
+        ]
+      }
+    },
+    {
+      $lookup: {
+        from: 'users',
+        localField: 'studentId',
+        foreignField: '_id',
+        as: 'student'
+      }
+    },
+    { $unwind: '$student' },
+    {
+      $lookup: {
+        from: 'colleges',
+        localField: 'student.collegeId',
+        foreignField: '_id',
+        as: 'college'
+      }
+    },
+    { $unwind: '$college' },
+    {
+      $group: {
+        _id: '$college._id',
+        collegeCode: { $first: '$college.collegeCode' },
+        collegeName: { $first: '$college.collegeName' },
+        pendingCount: { $sum: 1 }
+      }
+    },
+    { $sort: { pendingCount: -1 } }
+  ]);
+
   return {
     totalPrincipals,
     totalPrincipalsRegistered,
@@ -989,7 +1052,8 @@ exports.getDashboardStats = async (collegeId) => {
     totalRecords,
     totalRecordsSubmitted,
     totalRecordsPending,
-    missingSuggestedMarksByCollege
+    missingSuggestedMarksByCollege,
+    pendingReuploadsByCollege
   };
 };
 

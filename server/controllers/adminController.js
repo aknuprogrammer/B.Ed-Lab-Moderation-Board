@@ -652,6 +652,19 @@ exports.getMissingSuggestedMarksDetails = async (req, res) => {
   }
 };
 
+exports.getPendingReuploadsDetails = async (req, res) => {
+  try {
+    const { collegeId } = req.params;
+    if (!collegeId) {
+      return res.status(400).json({ message: 'College ID is required.' });
+    }
+    const result = await masterDataService.getPendingReuploadsDetails(collegeId);
+    res.json(result);
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ message: error.message });
+  }
+};
+
 exports.resetAllAllocations = async (req, res) => {
   try {
     const result = await evaluatorAdminService.resetAllAllocations();

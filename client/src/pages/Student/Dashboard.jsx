@@ -575,7 +575,19 @@ const Dashboard = () => {
   const [regularPage, setRegularPage] = useState(1);
   const [supplyPage, setSupplyPage] = useState(1);
 
-  const allSubmitted = assignments.length > 0 && assignments.every(a => a.status === 'Submitted' || a.status === 'Evaluated');
+  const cutoffDate = new Date('2026-08-28T00:00:00Z');
+  const allSubmitted = assignments.length > 0 && assignments.every(a => {
+    if (a.status !== 'Submitted' && a.status !== 'Evaluated') return false;
+    
+    const semester = String(a.subjectId?.semester || a.studentId?.currentSemester || '2');
+    if (semester !== '2') {
+      const submittedAt = new Date(a.submittedAt || 0);
+      if (submittedAt < cutoffDate) {
+        return false;
+      }
+    }
+    return true;
+  });
   
   let latestCompletionDate = '';
   if (allSubmitted) {

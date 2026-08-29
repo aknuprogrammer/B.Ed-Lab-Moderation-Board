@@ -5,6 +5,18 @@ const emailService = require('../emailService');
 const AppError = require('../../utils/AppError');
 const bcrypt = require('bcryptjs');
 
+const getReuploadFilter = async () => {
+  const cutoffDate = new Date('2026-08-28T00:00:00Z');
+  const sem2Subjects = await Subject.find({ semester: '2' }).distinct('_id');
+  const otherSemSubjects = await Subject.find({ semester: { $ne: '2' } }).distinct('_id');
+  return {
+    $or: [
+      { subjectId: { $in: sem2Subjects } },
+      { subjectId: { $in: otherSemSubjects }, submittedAt: { $gte: cutoffDate } }
+    ]
+  };
+};
+
 const getSemLevel = (sem) => {
   if (!sem) return 1;
   const s = String(sem).trim().toUpperCase();
@@ -351,16 +363,18 @@ exports.assignSubjectsToEvaluator = async (id, { allocations, subjectIds, groupS
 };
 
 exports.getSubjectsWithSubmissions = async (mode = 'Regular') => {
+  const reuploadFilter = await getReuploadFilter();
+  
   const query = {
     status: { $ne: 'Pending' },
     isAbsent: { $ne: true }
   };
 
-  if (mode === 'Supply') {
-    query.mode = 'Supply';
-  } else {
-    query.$or = [{ mode: 'Regular' }, { mode: { $exists: false } }, { mode: null }];
-  }
+  const modeClause = mode === 'Supply' 
+    ? { mode: 'Supply' }
+    : { $or: [{ mode: 'Regular' }, { mode: { $exists: false } }, { mode: null }] };
+
+  query.$and = [reuploadFilter, modeClause];
 
   const assignments = await Assignment.find(query).select('subjectId groupSubjectName evaluatorId').lean();
 
@@ -422,19 +436,19 @@ exports.getSubjectAllocationStats = async ({ subjectId, groupSubjectName, subjec
     status: { $ne: 'Pending' },
     isAbsent: { $ne: true }
   };
-  if (mode === 'Supply') {
-    submittedQuery.mode = 'Supply';
-  } else {
-    if (query.$or) {
-      submittedQuery.$and = [
-        { $or: query.$or },
-        { $or: [{ mode: 'Regular' }, { mode: { $exists: false } }, { mode: null }] }
-      ];
-      delete submittedQuery.$or;
-    } else {
-      submittedQuery.$or = [{ mode: 'Regular' }, { mode: { $exists: false } }, { mode: null }];
-    }
+
+  const reuploadFilter = await getReuploadFilter();
+  const modeClause = mode === 'Supply' 
+    ? { mode: 'Supply' }
+    : { $or: [{ mode: 'Regular' }, { mode: { $exists: false } }, { mode: null }] };
+
+  const combinedAnd = [reuploadFilter, modeClause];
+  if (query.$or) {
+    combinedAnd.push({ $or: query.$or });
+    delete submittedQuery.$or;
   }
+  
+  submittedQuery.$and = combinedAnd;
 
   const allAssignmentsForStats = await Assignment.find(submittedQuery)
     .populate('studentId', 'collegeId')
@@ -505,11 +519,13 @@ exports.allocateSubjectBulk = async ({ subjectId, groupSubjectName, subjects, ev
 
   for (const s of parsedSubjects) {
     const query = { evaluatorId: null, status: { $ne: 'Pending' } };
-    if (mode === 'Supply') {
-      query.mode = 'Supply';
-    } else {
-      query.$or = [{ mode: 'Regular' }, { mode: { $exists: false } }, { mode: null }];
-    }
+    
+    const reuploadFilter = await getReuploadFilter();
+    const modeClause = mode === 'Supply' 
+      ? { mode: 'Supply' }
+      : { $or: [{ mode: 'Regular' }, { mode: { $exists: false } }, { mode: null }] };
+      
+    query.$and = [reuploadFilter, modeClause];
     if (s.subjectId) query.subjectId = s.subjectId;
     else if (s.groupSubjectName) query.groupSubjectName = s.groupSubjectName;
     else continue;
@@ -517,14 +533,26 @@ exports.allocateSubjectBulk = async ({ subjectId, groupSubjectName, subjects, ev
     let assignmentsToUpdate = [];
 
     if (splitMethod === 'COUNT' && count > 0) {
-      assignmentsToUpdate = await Assignment.find(query).limit(Number(count)).select('_id');
+      const allAssig = await Assignment.find(query).populate('studentId', 'regdNo').select('_id studentId');
+      allAssig.sort((a, b) => {
+        const regA = String(a.studentId?.regdNo || '');
+        const regB = String(b.studentId?.regdNo || '');
+        return regA.localeCompare(regB, undefined, { numeric: true, sensitivity: 'base' });
+      });
+      assignmentsToUpdate = allAssig.slice(0, Number(count));
     } else if (splitMethod === 'COLLEGE' && collegeAllocations && collegeAllocations.length > 0) {
       for (const ca of collegeAllocations) {
         const students = await User.find({ role: 'STUDENT', collegeId: ca.id }).select('_id');
         const colQuery = { ...query, studentId: { $in: students.map(st => st._id) } };
         let colAssignments = [];
         if (ca.count && Number(ca.count) > 0) {
-          colAssignments = await Assignment.find(colQuery).limit(Number(ca.count)).select('_id');
+          const allColAssig = await Assignment.find(colQuery).populate('studentId', 'regdNo').select('_id studentId');
+          allColAssig.sort((a, b) => {
+            const regA = String(a.studentId?.regdNo || '');
+            const regB = String(b.studentId?.regdNo || '');
+            return regA.localeCompare(regB, undefined, { numeric: true, sensitivity: 'base' });
+          });
+          colAssignments = allColAssig.slice(0, Number(ca.count));
         } else {
           colAssignments = await Assignment.find(colQuery).select('_id');
         }

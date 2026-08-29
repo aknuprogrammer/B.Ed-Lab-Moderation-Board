@@ -31,6 +31,12 @@ const Overview = () => {
   const [missingMarksDetails, setMissingMarksDetails] = useState([]);
   const [loadingMissingMarks, setLoadingMissingMarks] = useState(false);
 
+  // Pending Reuploads Modal State
+  const [isPendingReuploadsModalOpen, setIsPendingReuploadsModalOpen] = useState(false);
+  const [selectedPendingCollege, setSelectedPendingCollege] = useState(null);
+  const [pendingReuploadsDetails, setPendingReuploadsDetails] = useState([]);
+  const [loadingPendingReuploads, setLoadingPendingReuploads] = useState(false);
+
   // Dropdown UI states
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -82,6 +88,23 @@ const Overview = () => {
     }
   };
 
+  const handleViewPendingReuploads = async (college) => {
+    setSelectedPendingCollege(college);
+    setIsPendingReuploadsModalOpen(true);
+    setLoadingPendingReuploads(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get(`${API_BASE_URL}/api/admin/pending-reuploads/${college._id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setPendingReuploadsDetails(res.data || []);
+    } catch (err) {
+      console.error('Error fetching pending reuploads details:', err);
+    } finally {
+      setLoadingPendingReuploads(false);
+    }
+  };
+
   useEffect(() => {
     fetchColleges();
     fetchStats('all');
@@ -125,6 +148,7 @@ const Overview = () => {
   const recordsPendingPct = totalRecords > 0 ? Math.round((totalRecordsPending / totalRecords) * 100) : 0;
   
   const missingSuggestedMarksByCollege = stats?.missingSuggestedMarksByCollege || [];
+  const pendingReuploadsByCollege = stats?.pendingReuploadsByCollege || [];
 
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-8">
@@ -298,7 +322,7 @@ const Overview = () => {
               <CheckCircle className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Submitted Records</p>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Re-uploaded / Submitted</p>
               <p className="text-2xl font-bold text-slate-900 mt-1">{loading ? '-' : totalRecordsSubmitted}</p>
             </div>
           </div>
@@ -459,7 +483,7 @@ const Overview = () => {
                   <div className="flex items-center justify-between py-2.5">
                     <div className="flex items-center gap-2">
                       <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
-                      <span className="font-semibold text-slate-600">Submitted Records</span>
+                      <span className="font-semibold text-slate-600">Re-uploaded / Submitted</span>
                     </div>
                     <div className="font-bold text-slate-900 text-right">
                       {loading ? '-' : `${totalRecordsSubmitted} (${recordsSubmittedPct}%)`}
@@ -548,6 +572,68 @@ const Overview = () => {
         </div>
       </div>
 
+      {/* Pending Reuploads Section */}
+      <div className="space-y-4 mt-8">
+        <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500">
+          Pending Re-uploads (Action Required by Principals)
+        </h2>
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+          <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center gap-3">
+            <Clock className="h-5 w-5 text-indigo-500" />
+            <p className="text-sm font-medium text-slate-700">
+              The following colleges have students who have not yet re-uploaded their required records (or have missing records).
+            </p>
+          </div>
+          
+          <div className="overflow-x-auto max-h-80 elegant-scrollbar">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-50 text-slate-600 font-semibold sticky top-0 border-b border-slate-200">
+                <tr>
+                  <th className="px-6 py-3">College Code</th>
+                  <th className="px-6 py-3">College Name</th>
+                  <th className="px-6 py-3 text-center">Pending Re-uploads</th>
+                  <th className="px-6 py-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {loading ? (
+                  <tr>
+                    <td colSpan="4" className="px-6 py-8 text-center text-slate-400">Loading data...</td>
+                  </tr>
+                ) : pendingReuploadsByCollege.length === 0 ? (
+                  <tr>
+                    <td colSpan="4" className="px-6 py-8 text-center font-medium text-emerald-600 flex items-center justify-center gap-2">
+                      <CheckCircle className="h-5 w-5" /> All students have re-uploaded their records!
+                    </td>
+                  </tr>
+                ) : (
+                  pendingReuploadsByCollege.map((college, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50/50">
+                      <td className="px-6 py-3 font-semibold text-slate-900">{college.collegeCode}</td>
+                      <td className="px-6 py-3 font-medium">{college.collegeName}</td>
+                      <td className="px-6 py-3 text-center">
+                        <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-full text-xs font-bold bg-indigo-100 text-indigo-800 border border-indigo-200 min-w-[3rem]">
+                          {college.pendingCount}
+                        </span>
+                      </td>
+                      <td className="px-6 py-3 text-right">
+                        <button
+                          onClick={() => handleViewPendingReuploads(college)}
+                          className="p-1.5 bg-teal-50 text-teal-600 hover:bg-teal-100 rounded-md transition-colors"
+                          title="View Details"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       {/* Missing Suggested Marks Modal */}
       {isMissingMarksModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
@@ -609,6 +695,82 @@ const Overview = () => {
             <div className="p-4 border-t border-slate-200 bg-white flex justify-end">
               <button 
                 onClick={() => setIsMissingMarksModalOpen(false)}
+                className="px-4 py-2 bg-slate-100 text-slate-700 hover:bg-slate-200 font-semibold rounded-md transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pending Reuploads Modal */}
+      {isPendingReuploadsModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <Clock className="h-5 w-5 text-indigo-500" />
+                  Pending Re-uploads - {selectedPendingCollege?.collegeName}
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">College Code: {selectedPendingCollege?.collegeCode}</p>
+              </div>
+              <button 
+                onClick={() => setIsPendingReuploadsModalOpen(false)}
+                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-md transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
+              {loadingPendingReuploads ? (
+                <div className="flex flex-col items-center justify-center py-12">
+                  <RefreshCw className="h-8 w-8 text-teal-600 animate-spin mb-4" />
+                  <p className="text-slate-500 font-medium text-sm">Loading details...</p>
+                </div>
+              ) : pendingReuploadsDetails.length === 0 ? (
+                <div className="text-center py-12 text-slate-500 font-medium">
+                  No pending re-uploads found for this college.
+                </div>
+              ) : (
+                <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-100 text-slate-600 font-semibold border-b border-slate-200">
+                      <tr>
+                        <th className="px-4 py-3 w-16 text-center">S.No</th>
+                        <th className="px-4 py-3">Student Reg No</th>
+                        <th className="px-4 py-3">Name</th>
+                        <th className="px-4 py-3">Subject</th>
+                        <th className="px-4 py-3">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-slate-700">
+                      {pendingReuploadsDetails.map((detail, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50">
+                          <td className="px-4 py-3 text-center text-slate-500 font-medium">{detail.sNo}</td>
+                          <td className="px-4 py-3 text-slate-600">{detail.regdNo}</td>
+                          <td className="px-4 py-3 font-semibold text-slate-900">{detail.name}</td>
+                          <td className="px-4 py-3">{detail.subject}</td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex px-2 py-0.5 rounded text-xs font-semibold ${
+                              detail.status === 'Pending' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800'
+                            }`}>
+                              {detail.status === 'Pending' ? 'Missing' : 'Not Re-uploaded'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            
+            <div className="p-4 border-t border-slate-200 bg-white flex justify-end">
+              <button 
+                onClick={() => setIsPendingReuploadsModalOpen(false)}
                 className="px-4 py-2 bg-slate-100 text-slate-700 hover:bg-slate-200 font-semibold rounded-md transition-colors"
               >
                 Close
