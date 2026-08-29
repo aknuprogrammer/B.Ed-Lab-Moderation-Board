@@ -996,8 +996,7 @@ exports.getDashboardStats = async (collegeId) => {
         collegeName: { $first: '$college.collegeName' },
         missingCount: { $sum: 1 }
       }
-    },
-    { $sort: { missingCount: -1 } }
+    }
   ]);
 
   const pendingReuploadsByCollege = await Assignment.aggregate([
@@ -1040,9 +1039,16 @@ exports.getDashboardStats = async (collegeId) => {
         collegeName: { $first: '$college.collegeName' },
         pendingCount: { $sum: 1 }
       }
-    },
-    { $sort: { pendingCount: -1 } }
+    }
   ]);
+
+  missingSuggestedMarksByCollege.sort((a, b) => 
+    String(a.collegeCode || '').localeCompare(String(b.collegeCode || ''), undefined, { numeric: true, sensitivity: 'base' })
+  );
+
+  pendingReuploadsByCollege.sort((a, b) => 
+    String(a.collegeCode || '').localeCompare(String(b.collegeCode || ''), undefined, { numeric: true, sensitivity: 'base' })
+  );
 
   return {
     totalPrincipals,

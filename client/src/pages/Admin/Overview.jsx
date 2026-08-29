@@ -527,6 +527,7 @@ const Overview = () => {
             <table className="w-full text-left text-sm">
               <thead className="bg-slate-50 text-slate-600 font-semibold sticky top-0 border-b border-slate-200">
                 <tr>
+                  <th className="px-6 py-3 w-16 text-center">S.No</th>
                   <th className="px-6 py-3">College Code</th>
                   <th className="px-6 py-3">College Name</th>
                   <th className="px-6 py-3 text-center">Records Missing Suggested Marks</th>
@@ -536,17 +537,18 @@ const Overview = () => {
               <tbody className="divide-y divide-slate-100 text-slate-700">
                 {loading ? (
                   <tr>
-                    <td colSpan="4" className="px-6 py-8 text-center text-slate-400">Loading data...</td>
+                    <td colSpan="5" className="px-6 py-8 text-center text-slate-400">Loading data...</td>
                   </tr>
                 ) : missingSuggestedMarksByCollege.length === 0 ? (
                   <tr>
-                    <td colSpan="4" className="px-6 py-8 text-center font-medium text-emerald-600 flex items-center justify-center gap-2">
+                    <td colSpan="5" className="px-6 py-8 text-center font-medium text-emerald-600 flex items-center justify-center gap-2">
                       <CheckCircle className="h-5 w-5" /> All submitted records have suggested marks!
                     </td>
                   </tr>
                 ) : (
                   missingSuggestedMarksByCollege.map((college, idx) => (
                     <tr key={idx} className="hover:bg-slate-50/50">
+                      <td className="px-6 py-3 text-center text-slate-500 font-medium">{idx + 1}</td>
                       <td className="px-6 py-3 font-semibold text-slate-900">{college.collegeCode}</td>
                       <td className="px-6 py-3 font-medium">{college.collegeName}</td>
                       <td className="px-6 py-3 text-center">
@@ -589,6 +591,7 @@ const Overview = () => {
             <table className="w-full text-left text-sm">
               <thead className="bg-slate-50 text-slate-600 font-semibold sticky top-0 border-b border-slate-200">
                 <tr>
+                  <th className="px-6 py-3 w-16 text-center">S.No</th>
                   <th className="px-6 py-3">College Code</th>
                   <th className="px-6 py-3">College Name</th>
                   <th className="px-6 py-3 text-center">Pending Re-uploads</th>
@@ -598,17 +601,18 @@ const Overview = () => {
               <tbody className="divide-y divide-slate-100 text-slate-700">
                 {loading ? (
                   <tr>
-                    <td colSpan="4" className="px-6 py-8 text-center text-slate-400">Loading data...</td>
+                    <td colSpan="5" className="px-6 py-8 text-center text-slate-400">Loading data...</td>
                   </tr>
                 ) : pendingReuploadsByCollege.length === 0 ? (
                   <tr>
-                    <td colSpan="4" className="px-6 py-8 text-center font-medium text-emerald-600 flex items-center justify-center gap-2">
+                    <td colSpan="5" className="px-6 py-8 text-center font-medium text-emerald-600 flex items-center justify-center gap-2">
                       <CheckCircle className="h-5 w-5" /> All students have re-uploaded their records!
                     </td>
                   </tr>
                 ) : (
                   pendingReuploadsByCollege.map((college, idx) => (
                     <tr key={idx} className="hover:bg-slate-50/50">
+                      <td className="px-6 py-3 text-center text-slate-500 font-medium">{idx + 1}</td>
                       <td className="px-6 py-3 font-semibold text-slate-900">{college.collegeCode}</td>
                       <td className="px-6 py-3 font-medium">{college.collegeName}</td>
                       <td className="px-6 py-3 text-center">
