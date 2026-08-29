@@ -90,15 +90,12 @@ exports.submitAssignment = async ({ assignmentId, file, user, note, extractedTex
     }
     const pdfParse = require('pdf-parse');
     const pdfData = await pdfParse(dataBuffer, { max: 2 });
-    const extractedUpper = (pdfData.text || '').toUpperCase();
-    const cleanExtracted = extractedUpper.replace(/[^A-Z0-9]/g, '');
-    
-    // Only enforce verification if there is enough readable text (e.g., not an image-only scan)
-    // If pdf-parse extracted text is too short, fallback to the OCR text provided by the frontend
-    if (cleanExtracted.length <= 20 && clientExtractedText) {
-      extractedUpper = clientExtractedText.toUpperCase();
-      cleanExtracted = extractedUpper.replace(/[^A-Z0-9]/g, '');
+    let extractedUpper = (pdfData.text || '').toUpperCase();
+    if (clientExtractedText) {
+      extractedUpper += ' ' + clientExtractedText.toUpperCase();
     }
+    const cleanExtracted = extractedUpper.replace(/[^A-Z0-9]/g, '');
+
 
     if (cleanExtracted.length > 20) {
       // 1. Verify Regd No

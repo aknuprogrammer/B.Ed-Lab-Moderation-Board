@@ -1049,6 +1049,35 @@ exports.getDashboardStats = async (collegeId) => {
   pendingReuploadsByCollege.sort((a, b) => 
     String(a.collegeCode || '').localeCompare(String(b.collegeCode || ''), undefined, { numeric: true, sensitivity: 'base' })
   );
+  const subjectWiseCounts = await Assignment.aggregate([
+    { 
+      $match: { 
+        ...recordFilter,
+        submittedAt: { $gt: new Date('2026-08-28T00:00:00.000Z') },
+        status: { $in: ['Submitted', 'Evaluated'] }
+      } 
+    },
+    {
+      $lookup: {
+        from: 'subjects',
+        localField: 'subjectId',
+        foreignField: '_id',
+        as: 'subject'
+      }
+    },
+    { $unwind: { path: '$subject', preserveNullAndEmptyArrays: true } },
+    {
+      $group: {
+        _id: {
+          subCode: '$subject.subCode',
+          subName: '$subject.subName',
+          groupSubjectName: '$groupSubjectName'
+        },
+        count: { $sum: 1 }
+      }
+    },
+    { $sort: { count: -1 } }
+  ]);
 
   return {
     totalPrincipals,
@@ -1059,7 +1088,8 @@ exports.getDashboardStats = async (collegeId) => {
     totalRecordsSubmitted,
     totalRecordsPending,
     missingSuggestedMarksByCollege,
-    pendingReuploadsByCollege
+    pendingReuploadsByCollege,
+    subjectWiseCounts
   };
 };
 

@@ -149,6 +149,7 @@ const Overview = () => {
   
   const missingSuggestedMarksByCollege = stats?.missingSuggestedMarksByCollege || [];
   const pendingReuploadsByCollege = stats?.pendingReuploadsByCollege || [];
+  const subjectWiseCounts = stats?.subjectWiseCounts || [];
 
   const totalMissingSuggestedMarks = missingSuggestedMarksByCollege.reduce((sum, col) => sum + (col.missingCount || 0), 0);
   const totalPendingReuploads = pendingReuploadsByCollege.reduce((sum, col) => sum + (col.pendingCount || 0), 0);
@@ -639,6 +640,71 @@ const Overview = () => {
             </table>
           </div>
         </div>
+
+      {/* Subject-wise Uploaded Records Section */}
+      <div className="space-y-4 mt-8">
+        <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500">
+          Subject-wise Uploaded Records (Submitted After Aug 28, 2026)
+        </h2>
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+          <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center gap-3">
+            <FileText className="h-5 w-5 text-teal-500" />
+            <p className="text-sm font-medium text-slate-700">
+              Breakdown of records uploaded by subject (including specific pedagogy groups).
+            </p>
+          </div>
+          
+          <div className="overflow-x-auto max-h-96 elegant-scrollbar">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-50 text-slate-600 font-semibold sticky top-0 border-b border-slate-200">
+                <tr>
+                  <th className="px-6 py-3 w-16 text-center">S.No</th>
+                  <th className="px-6 py-3">Subject Code</th>
+                  <th className="px-6 py-3">Subject Name</th>
+                  <th className="px-6 py-3">Group Subject</th>
+                  <th className="px-6 py-3 text-center">Uploaded Count</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {loading ? (
+                  <tr>
+                    <td colSpan="5" className="px-6 py-8 text-center text-slate-400">Loading data...</td>
+                  </tr>
+                ) : subjectWiseCounts.length === 0 ? (
+                  <tr>
+                    <td colSpan="5" className="px-6 py-8 text-center font-medium text-slate-500">
+                      No records found.
+                    </td>
+                  </tr>
+                ) : (
+                  subjectWiseCounts.map((item, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50/50">
+                      <td className="px-6 py-3 text-center text-slate-500 font-medium">{idx + 1}</td>
+                      <td className="px-6 py-3 font-semibold text-slate-900">{item._id.subCode}</td>
+                      <td className="px-6 py-3 font-medium">{item._id.subName}</td>
+                      <td className="px-6 py-3">{item._id.groupSubjectName || '-'}</td>
+                      <td className="px-6 py-3 text-center">
+                        <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-full text-xs font-bold bg-teal-100 text-teal-800 border border-teal-200 min-w-[3rem]">
+                          {item.count}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+                {/* Total row */}
+                {!loading && subjectWiseCounts.length > 0 && (
+                  <tr className="bg-slate-50 font-bold text-slate-900 border-t-2 border-slate-200">
+                    <td colSpan="4" className="px-6 py-3 text-right">Total Uploads:</td>
+                    <td className="px-6 py-3 text-center">
+                      {subjectWiseCounts.reduce((acc, curr) => acc + curr.count, 0)}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
       </div>
 
       {/* Missing Suggested Marks Modal */}

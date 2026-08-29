@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
+import {
   Book, LogOut, CheckCircle, Upload, Activity, User as UserIcon, X, Download, FileText, RefreshCw, ChevronRight
 } from 'lucide-react';
 import axios from 'axios';
@@ -22,7 +22,7 @@ const Pagination = ({ total, page, onPage, pageSize = 10 }) => {
   if (totalPages <= 1) return null;
 
   const start = (page - 1) * pageSize + 1;
-  const end   = Math.min(page * pageSize, total);
+  const end = Math.min(page * pageSize, total);
 
   return (
     <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100 bg-slate-50 flex-wrap gap-3">
@@ -59,11 +59,10 @@ const Pagination = ({ total, page, onPage, pageSize = 10 }) => {
               <button
                 key={p}
                 onClick={() => onPage(p)}
-                className={`px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer transition-colors ${
-                  p === page
+                className={`px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer transition-colors ${p === page
                     ? 'bg-teal-700 text-white border border-teal-700'
                     : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
-                }`}
+                  }`}
               >
                 {p}
               </button>
@@ -187,7 +186,7 @@ const AssignmentTable = ({ title, data, currentPage, setCurrentPage, handleGener
                         isPastDeadline = new Date() > deadlineDate;
                       }
                       const isLocked = assignment.status === 'Evaluated' || isPastDeadline;
-                      
+
                       return (
                         <div className="flex flex-col sm:flex-row gap-2 justify-end items-center">
                           {assignment.filePath && (
@@ -210,13 +209,12 @@ const AssignmentTable = ({ title, data, currentPage, setCurrentPage, handleGener
                           </button>
                           <button
                             onClick={() => setUploadTarget(assignment)}
-                            className={`flex items-center px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
-                              isLocked 
-                                ? 'bg-slate-100 text-slate-400 cursor-not-allowed opacity-70 border border-slate-200' 
+                            className={`flex items-center px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${isLocked
+                                ? 'bg-slate-100 text-slate-400 cursor-not-allowed opacity-70 border border-slate-200'
                                 : assignment.status === 'Submitted'
                                   ? 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 hover:border-blue-300 cursor-pointer shadow-sm'
                                   : 'bg-teal-600 hover:bg-teal-700 text-white shadow-sm cursor-pointer'
-                            }`}
+                              }`}
                             disabled={isLocked}
                             title={isPastDeadline && assignment.status !== 'Evaluated' ? "Deadline has passed" : ""}
                           >
@@ -272,23 +270,23 @@ const UploadRecordModal = ({ assignment, onClose, onSuccess }) => {
     try {
       const arrayBuffer = await fileObj.arrayBuffer();
       const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-      
+
       let fullText = '';
       const numPages = Math.min(pdf.numPages, 2);
-      
+
       for (let i = 1; i <= numPages; i++) {
         const page = await pdf.getPage(i);
         const textContent = await page.getTextContent();
         const pageText = textContent.items.map(item => item.str).join(' ');
         fullText += pageText + ' ';
       }
-      
+
       // If native text is long enough, return it (it's not an image-only scan)
       const cleanText = fullText.replace(/[^a-zA-Z0-9]/g, '');
       if (cleanText.length > 20) {
-        return { success: true, text: fullText }; 
+        return { success: true, text: fullText };
       }
-      
+
       // If native text is empty (Image-only PDF), run OCR on the first page!
       setScanProgress('Running OCR to verify scanned document... This may take a few seconds.');
       const page = await pdf.getPage(1);
@@ -297,15 +295,15 @@ const UploadRecordModal = ({ assignment, onClose, onSuccess }) => {
       const context = canvas.getContext('2d');
       canvas.height = viewport.height;
       canvas.width = viewport.width;
-      
+
       await page.render({ canvasContext: context, viewport: viewport }).promise;
       const imageData = canvas.toDataURL('image/png');
-      
+
       const { createWorker } = await import('tesseract.js');
       const worker = await createWorker('eng');
       const { data: { text } } = await worker.recognize(imageData);
       await worker.terminate();
-      
+
       return { success: true, text };
     } catch (err) {
       console.error('Text Extraction/OCR Error:', err);
@@ -316,19 +314,19 @@ const UploadRecordModal = ({ assignment, onClose, onSuccess }) => {
   const handleFileChange = (e) => {
     const selected = e.target.files[0];
     if (!selected) return;
-    
+
     if (selected.type !== 'application/pdf') {
       setError('Please select a valid PDF file.');
       setFile(null);
       return;
     }
-    
+
     const isGroupSubject = !!assignment.groupSubjectName;
     const semester = String(assignment.subjectId?.semester);
     const isEligibleFor5MB = isGroupSubject && (semester === '3' || semester === '4');
-    
+
     const MAX_SIZE = isEligibleFor5MB ? 5 * 1024 * 1024 : 3 * 1024 * 1024;
-    
+
     if (selected.size > MAX_SIZE) {
       setError(`File size exceeds the limit. ${isEligibleFor5MB ? 'Max 5MB allowed.' : 'Max 3MB allowed.'}`);
       setFile(null);
@@ -352,7 +350,7 @@ const UploadRecordModal = ({ assignment, onClose, onSuccess }) => {
 
     const verificationResult = await extractTextOrOCR(file);
     setScanProgress('');
-    
+
     if (!verificationResult.success) {
       setError(verificationResult.message);
       setUploading(false);
@@ -390,7 +388,7 @@ const UploadRecordModal = ({ assignment, onClose, onSuccess }) => {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
       <div className="bg-white rounded-md shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
-        
+
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 bg-teal-700 text-white">
           <div className="flex items-center gap-2">
@@ -414,7 +412,7 @@ const UploadRecordModal = ({ assignment, onClose, onSuccess }) => {
             <label className="block text-sm font-semibold text-slate-700 mb-1.5">
               Select Completed Lab Record (PDF)
             </label>
-            
+
             <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-slate-300 border-dashed rounded-md hover:border-teal-500 transition-colors bg-slate-50/50 cursor-pointer relative">
               <input
                 type="file"
@@ -539,10 +537,10 @@ const Dashboard = () => {
       const sorted = res.data.sort((a, b) => {
         const aSub = a.subjectId || {};
         const bSub = b.subjectId || {};
-        
+
         const aIsGroup = !!(a.groupSubjectName || aSub.studentChoice === 'C' || aSub.studentChoice === 'c');
         const bIsGroup = !!(b.groupSubjectName || bSub.studentChoice === 'C' || bSub.studentChoice === 'c');
-        
+
         if (aIsGroup && !bIsGroup) return 1;
         if (!aIsGroup && bIsGroup) return -1;
         if (!aIsGroup && !bIsGroup) {
@@ -621,7 +619,7 @@ const Dashboard = () => {
   const cutoffDate = new Date('2026-08-28T00:00:00Z');
   const allSubmitted = assignments.length > 0 && assignments.every(a => {
     if (a.status !== 'Submitted' && a.status !== 'Evaluated') return false;
-    
+
     const semester = String(a.subjectId?.semester || a.studentId?.currentSemester || '2');
     if (semester !== '2') {
       const submittedAt = new Date(a.submittedAt || 0);
@@ -631,7 +629,7 @@ const Dashboard = () => {
     }
     return true;
   });
-  
+
   let latestCompletionDate = '';
   if (allSubmitted) {
     const dates = assignments.map(a => {
@@ -663,10 +661,10 @@ const Dashboard = () => {
   return (
     <div className="flex-1 min-h-0 flex flex-col md:h-full md:overflow-y-auto bg-slate-50 animate-fade-in w-full">
       {showActivity && (
-        <ActivityFeed 
-          actionTypes={['UPLOAD_RECORD', 'DOWNLOAD_RECORD']} 
-          onClose={() => setShowActivity(false)} 
-          refreshTrigger={refreshTrigger} 
+        <ActivityFeed
+          actionTypes={['UPLOAD_RECORD', 'DOWNLOAD_RECORD']}
+          onClose={() => setShowActivity(false)}
+          refreshTrigger={refreshTrigger}
         />
       )}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
@@ -698,7 +696,7 @@ const Dashboard = () => {
                 >
                   <UserIcon className="h-4 w-4" />
                 </button>
-                
+
                 {showProfile && profileData && (
                   <div className="absolute right-0 mt-2 w-72 bg-white rounded-md shadow-lg border border-slate-200 p-4 z-50 animate-fade-in">
                     <div className="flex justify-between items-start mb-3">
@@ -717,7 +715,7 @@ const Dashboard = () => {
                   </div>
                 )}
               </div>
-              
+
               <button
                 onClick={handleLogout}
                 className="flex items-center text-slate-500 hover:text-red-600 font-medium px-2 sm:px-3 py-2 rounded-md hover:bg-red-50 transition-colors cursor-pointer text-sm sm:text-base"
@@ -761,21 +759,21 @@ const Dashboard = () => {
         </div>
 
         {/* Tables */}
-        <AssignmentTable 
-          title="Regular Assignments" 
-          data={regularAssignments} 
-          currentPage={regularPage} 
-          setCurrentPage={setRegularPage} 
+        <AssignmentTable
+          title="Regular Assignments"
+          data={regularAssignments}
+          currentPage={regularPage}
+          setCurrentPage={setRegularPage}
           handleGenerateBarcodePDF={handleGenerateBarcodePDF}
           setUploadTarget={setUploadTarget}
         />
 
         {supplyAssignments.length > 0 && (
-          <AssignmentTable 
-            title="Supply (Backlog) Assignments" 
-            data={supplyAssignments} 
-            currentPage={supplyPage} 
-            setCurrentPage={setSupplyPage} 
+          <AssignmentTable
+            title="Supply (Backlog) Assignments"
+            data={supplyAssignments}
+            currentPage={supplyPage}
+            setCurrentPage={setSupplyPage}
             handleGenerateBarcodePDF={handleGenerateBarcodePDF}
             setUploadTarget={setUploadTarget}
           />
