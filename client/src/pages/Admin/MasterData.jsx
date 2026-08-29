@@ -82,6 +82,8 @@ const TAB_CONFIG = {
       {
         key: 'isSetupComplete',
         header: 'Face Status',
+        hideInForm: true,
+        optional: true,
         render: (val) => val ? (
           <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-semibold rounded-full">
             Registered
