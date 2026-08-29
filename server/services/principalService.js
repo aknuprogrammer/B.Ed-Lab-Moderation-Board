@@ -94,7 +94,7 @@ exports.getPrincipalDashboardStats = async (collegeId, { courseId, semester }) =
       };
     }
 
-    if (asg.status === 'Submitted') {
+    if (asg.status === 'Submitted' || asg.status === 'Re-Submitted') {
       subjectProgressMap[label].submitted++;
       totalSubmitted++;
     } else if (asg.status === 'Evaluated') {
@@ -161,7 +161,7 @@ exports.getPendingStudents = async (collegeId, { courseId, semester }) => {
       { isAbsent: true },
       { 
         subjectId: { $in: otherSemSubjects }, 
-        status: { $in: ['Submitted', 'Evaluated'] }, 
+        status: { $in: ['Submitted', 'Re-Submitted', 'Evaluated'] }, 
         submittedAt: { $lt: cutoffDate } 
       }
     ]
@@ -229,7 +229,7 @@ exports.getCollegeRecords = async (collegeId) => {
 
   const assignments = await Assignment.find({
     studentId: { $in: studentIds },
-    status: { $in: ['Submitted', 'Evaluated'] }
+    status: { $in: ['Submitted', 'Re-Submitted', 'Evaluated'] }
   })
     .populate('studentId', 'fullName regdNo currentSemester')
     .populate('subjectId', 'subCode subName maxMarks semester')

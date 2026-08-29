@@ -168,10 +168,8 @@ const CollegeRecords = () => {
                           Absent
                         </span>
                       ) : (
-                        <span className={`inline-flex px-2 py-1 rounded text-xs font-semibold ${
-                          record.status === 'Evaluated' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'
-                        }`}>
-                          {record.status}
+                        <span className={`inline-flex px-2 py-1 rounded text-xs font-semibold bg-blue-100 text-blue-700`}>
+                          {record.status === 'Evaluated' ? 'Submitted' : record.status}
                         </span>
                       )}
                     </td>
