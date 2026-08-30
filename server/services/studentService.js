@@ -100,9 +100,41 @@ exports.submitAssignment = async ({ assignmentId, file, user, note, extractedTex
     if (cleanExtracted.length > 20) {
       // 1. Verify Regd No
       const regdNo = user.regdNo ? user.regdNo.toUpperCase().replace(/[^A-Z0-9]/g, '') : '';
-      if (regdNo && !cleanExtracted.includes(regdNo)) {
-        if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
-        throw new AppError(`Document Verification Failed: We could not find your Registration Number (${user.regdNo}) on the certificate page. Please ensure you are uploading your own record.`, 400);
+      let regdNoMatched = false;
+
+      if (regdNo) {
+        if (cleanExtracted.includes(regdNo)) {
+          regdNoMatched = true;
+        } else {
+          // OCR normalization
+          const ocrReplace = (str) => str.replace(/[O0]/g, '0').replace(/[S5]/g, '5').replace(/[I1L]/g, '1').replace(/[Z2]/g, '2').replace(/[B8]/g, '8');
+          const normalizedExtracted = ocrReplace(cleanExtracted);
+          const normalizedRegdNo = ocrReplace(regdNo);
+          
+          if (normalizedExtracted.includes(normalizedRegdNo)) {
+            regdNoMatched = true;
+          } else {
+            // Fuzzy match using sliding window (allows up to ~2-3 char errors)
+            if (cleanExtracted.length >= regdNo.length) {
+              for (let i = 0; i <= cleanExtracted.length - regdNo.length; i++) {
+                const windowStr = cleanExtracted.substring(i, i + regdNo.length);
+                if (stringSimilarity.compareTwoStrings(regdNo, windowStr) >= 0.6) {
+                  regdNoMatched = true;
+                  break;
+                }
+              }
+            }
+          }
+        }
+      } else {
+        regdNoMatched = true;
+      }
+
+      if (!regdNoMatched) {
+        // We will log this instead of throwing an error to prevent blocking valid students 
+        // due to poor handwritten OCR, as the subject verification is a stronger check.
+        console.warn(`RegdNo ${user.regdNo} not detected perfectly in OCR for assignment ${assignmentId}`);
+        // We do not throw AppError here anymore to fix the issue where correct records are rejected.
       }
       
       // 2. Verify Subject Code or Name
