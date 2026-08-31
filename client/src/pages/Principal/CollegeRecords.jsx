@@ -199,8 +199,8 @@ const CollegeRecords = () => {
                             year: 'numeric'
                           });
                           return (
-                            <span className={`font-semibold ${isDeadlinePassed ? 'text-red-500' : 'text-teal-600'}`}>
-                              {deadlineFormatted} {isDeadlinePassed ? '(Passed)' : ''}
+                            <span className="font-semibold text-teal-600">
+                              {deadlineFormatted}
                             </span>
                           );
                         }
