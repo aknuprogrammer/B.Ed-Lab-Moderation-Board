@@ -13,8 +13,9 @@ import CertificatePDF from '../../components/CertificatePDF';
 import SessionTimer from '../../components/SessionTimer';
 import ActivityFeed from '../../components/ActivityFeed';
 import * as pdfjsLib from 'pdfjs-dist/build/pdf';
+import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.mjs`;
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 /* ── Pagination component ── */
 const Pagination = ({ total, page, onPage, pageSize = 10 }) => {
@@ -307,7 +308,7 @@ const UploadRecordModal = ({ assignment, onClose, onSuccess }) => {
       return { success: true, text };
     } catch (err) {
       console.error('Text Extraction/OCR Error:', err);
-      return { success: false, message: 'Failed to process PDF file. Please ensure it is a valid document.' };
+      return { success: false, message: `Failed to process PDF file: ${err.message || 'Unknown error'}` };
     }
   };
 
