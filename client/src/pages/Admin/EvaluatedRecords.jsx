@@ -136,6 +136,21 @@ const EvaluatedRecords = () => {
     setTimeout(() => setToastMessage(''), 3000);
   };
 
+  const handleResetEvaluation = async (assignmentId) => {
+    if (!window.confirm("Are you sure you want to reset this evaluation? This will allow the student to re-upload their record.")) return;
+    try {
+      const res = await axios.post(`${API_BASE_URL}/api/admin/reset-evaluation`, { assignmentId }, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      setToastMessage(res.data.message || 'Evaluation reset successfully.');
+      fetchAssignments();
+      setTimeout(() => setToastMessage(''), 3000);
+    } catch (err) {
+      console.error('Failed to reset evaluation:', err);
+      alert(err.response?.data?.message || 'Failed to reset evaluation.');
+    }
+  };
+
   useEffect(() => {
     const fetchPapers = async () => {
       try {
@@ -160,7 +175,8 @@ const EvaluatedRecords = () => {
     const subjectMatch = (record.groupSubjectName || record.subjectId?.subName || '').toLowerCase().includes(searchTerm.toLowerCase());
     const queryMatch = nameMatch || regdNoMatch || subjectMatch;
 
-    const statusMatch = !selectedStatus || record.status === selectedStatus;
+    const statusMatch = !selectedStatus 
+      || (selectedStatus === 'ZeroMarks' ? record.score === 0 : record.status === selectedStatus);
     const semMatch = !selectedSemester || (record.subjectId?.semester === selectedSemester || record.studentId?.currentSemester === selectedSemester);
 
     return queryMatch && statusMatch && semMatch;
@@ -458,6 +474,7 @@ const EvaluatedRecords = () => {
                 <option value="">-- All Statuses --</option>
                 <option value="Submitted">Pending Evaluation</option>
                 <option value="Evaluated">Evaluation Completed</option>
+                <option value="ZeroMarks">Zero Marks (0)</option>
               </select>
             )}
 
@@ -564,6 +581,15 @@ const EvaluatedRecords = () => {
                               Re-allocate
                             </button>
                           )}
+                          {record.status === 'Evaluated' && record.score === 0 && (
+                            <button
+                              onClick={() => handleResetEvaluation(record._id)}
+                              className="inline-flex items-center px-2 py-1 bg-white border border-rose-200 hover:bg-rose-50 text-rose-700 rounded text-xs font-semibold cursor-pointer shadow-sm transition-colors"
+                            >
+                              <RefreshCw className="w-3 h-3 mr-1" />
+                              Reset Eval
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -641,6 +667,15 @@ const EvaluatedRecords = () => {
                             >
                               <RefreshCw className="w-3 h-3 mr-1" />
                               Re-allocate
+                            </button>
+                          )}
+                          {record.status === 'Evaluated' && record.score === 0 && (
+                            <button
+                              onClick={() => handleResetEvaluation(record._id)}
+                              className="inline-flex items-center px-2 py-1 bg-white border border-rose-200 hover:bg-rose-50 text-rose-700 rounded text-xs font-semibold cursor-pointer shadow-sm transition-colors"
+                            >
+                              <RefreshCw className="w-3 h-3 mr-1" />
+                              Reset Eval
                             </button>
                           )}
                         </div>

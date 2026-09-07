@@ -272,7 +272,6 @@ export default function Evaluators() {
   };
   const handleExtendDeadline = async (e) => {
     e.preventDefault();
-    if (selectedEvaluatorsForExtension.length === 0) return setError('Please select at least one evaluator.');
     if (!extensionDeadline) return setError('Please select an extension date.');
     if (selectedSubjects.length === 0) return setError('No subject selected.');
 
@@ -284,7 +283,6 @@ export default function Evaluators() {
       const parsedSubjects = selectedSubjects.map(s => s.type === 'CORE' ? { subjectId: s.id } : { groupSubjectName: s.name });
 
       const payload = {
-        evaluatorIds: selectedEvaluatorsForExtension,
         subjects: parsedSubjects,
         valuationDeadline: extensionDeadline,
         mode: allocationMode
@@ -294,8 +292,7 @@ export default function Evaluators() {
         headers: { Authorization: `Bearer ${token}` }
       });
 
-      setSuccess(`Deadline extended successfully for ${selectedEvaluatorsForExtension.length} evaluator(s).`);
-      setSelectedEvaluatorsForExtension([]);
+      setSuccess(res.data.message || `Deadline extended successfully for selected subjects.`);
       setExtensionDeadline('');
       setRefreshTrigger(prev => prev + 1);
     } catch (err) {
@@ -656,7 +653,34 @@ export default function Evaluators() {
                       </div>
                     </div>
                   </div>
-
+                  <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mt-6">
+                    <div className="bg-slate-50 border-b border-slate-100 px-5 py-4">
+                      <h3 className="font-semibold text-slate-800 flex items-center gap-2">
+                        <Clock className="h-4 w-4 text-teal-600" />
+                        Bulk Extend Deadline
+                      </h3>
+                    </div>
+                    <form onSubmit={handleExtendDeadline} className="p-5 flex flex-col gap-4">
+                      <p className="text-xs text-slate-500">Extend evaluation deadline for all records matching the selected subject(s).</p>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">New Deadline <span className="text-red-500">*</span></label>
+                        <input
+                          type="date"
+                          required
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+                          value={extensionDeadline}
+                          onChange={e => setExtensionDeadline(e.target.value)}
+                        />
+                      </div>
+                      <button
+                        type="submit"
+                        disabled={extending || !extensionDeadline}
+                        className="w-full bg-teal-600 cursor-pointer hover:bg-teal-700 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                      >
+                        {extending ? 'Extending...' : 'Extend Deadline'}
+                      </button>
+                    </form>
+                  </div>
 
                 </div>
 

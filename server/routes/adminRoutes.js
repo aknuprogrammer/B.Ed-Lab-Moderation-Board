@@ -62,6 +62,7 @@ router.post('/college-passwords', systemAdminOnly, adminController.updateCollege
 router.get('/paper-approvals', adminController.getPaperApprovals);
 router.post('/students/:id/reset-registration', adminController.resetStudentRegistration);
 router.post('/reset-all-allocations', adminController.resetAllAllocations);
+router.post('/reset-evaluation', adminController.resetEvaluation);
 
 // Activity Logs
 // Exports

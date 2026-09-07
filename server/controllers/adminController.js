@@ -278,6 +278,28 @@ exports.getEvaluatorAssignmentsGrouped = async (req, res) => {
   }
 };
 
+exports.resetEvaluation = async (req, res) => {
+  try {
+    const { assignmentId } = req.body;
+    if (!assignmentId) {
+      return res.status(400).json({ message: 'Assignment ID is required.' });
+    }
+    const result = await evaluatorAdminService.resetEvaluation(assignmentId);
+    
+    activityLogService.logActivity({
+      userId: req.user._id,
+      userRole: req.user.role,
+      actionType: 'UPDATE_EVALUATION',
+      entityType: 'Assignment',
+      details: { description: `Reset evaluation for assignment ${assignmentId} to allow student re-upload.` }
+    }).catch(err => console.error("Activity logging failed:", err));
+
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ message: error.message });
+  }
+};
+
 exports.assignToEvaluator = async (req, res) => {
   try {
     const result = await evaluatorAdminService.assignToEvaluator(req.body);

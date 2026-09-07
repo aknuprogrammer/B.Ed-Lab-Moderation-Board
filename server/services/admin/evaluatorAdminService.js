@@ -693,15 +693,19 @@ exports.reallocateEvaluator = async ({ assignmentId, newEvaluatorId, valuationDe
 };
 
 exports.extendEvaluatorDeadline = async ({ evaluatorIds, subjects, valuationDeadline, mode }) => {
-  if (!evaluatorIds || !Array.isArray(evaluatorIds) || evaluatorIds.length === 0) {
-    throw new AppError('Evaluator IDs are required.', 400);
+  const hasEvaluators = evaluatorIds && Array.isArray(evaluatorIds) && evaluatorIds.length > 0;
+  const hasSubjects = subjects && Array.isArray(subjects) && subjects.length > 0;
+
+  if (!hasEvaluators && !hasSubjects) {
+    throw new AppError('Either Evaluator IDs or Subjects are required.', 400);
   }
+
   if (!valuationDeadline) {
     throw new AppError('Valuation deadline is required.', 400);
   }
 
   let subjectQuery = [];
-  if (subjects && Array.isArray(subjects) && subjects.length > 0) {
+  if (hasSubjects) {
     subjects.forEach(sub => {
       if (sub.subjectId) {
         subjectQuery.push({ subjectId: sub.subjectId });
@@ -711,9 +715,10 @@ exports.extendEvaluatorDeadline = async ({ evaluatorIds, subjects, valuationDead
     });
   }
 
-  const query = {
-    evaluatorId: { $in: evaluatorIds }
-  };
+  const query = {};
+  if (hasEvaluators) {
+    query.evaluatorId = { $in: evaluatorIds };
+  }
 
   if (mode === 'Supply') {
     query.mode = 'Supply';
@@ -722,7 +727,7 @@ exports.extendEvaluatorDeadline = async ({ evaluatorIds, subjects, valuationDead
   }
 
   if (subjectQuery.length > 0) {
-    // We need to intersect the mode condition with the subject condition
+    // We need to intersect the mode and evaluator conditions with the subject condition
     // So we use $and
     const finalQuery = {
       $and: [
@@ -737,6 +742,7 @@ exports.extendEvaluatorDeadline = async ({ evaluatorIds, subjects, valuationDead
     );
     return { message: `Successfully extended deadline for ${result.modifiedCount} assignment(s).`, modifiedCount: result.modifiedCount };
   } else {
+    // This case happens if only evaluatorIds are provided
     const result = await Assignment.updateMany(
       query,
       { $set: { valuationDeadline: new Date(valuationDeadline) } }
@@ -807,8 +813,26 @@ exports.resetAllAllocations = async () => {
   );
 
   return {
-    message: 'All allocations have been reset successfully.',
-    assignmentsUpdated: resultAssignments.modifiedCount,
-    evaluatorsUpdated: resultEvaluators.modifiedCount
+    message: `Reset complete. ${resultAssignments.modifiedCount} assignments and ${resultEvaluators.modifiedCount} evaluators were updated.`
   };
+};
+
+exports.resetEvaluation = async (assignmentId) => {
+  const assignment = await Assignment.findById(assignmentId);
+  if (!assignment) {
+    throw new AppError('Assignment not found.', 404);
+  }
+
+  // Clear evaluation and submission fields, set status to Pending
+  assignment.status = 'Pending';
+  assignment.score = null;
+  assignment.feedback = null;
+  assignment.evaluatorId = null;
+  assignment.valuationDeadline = null;
+  assignment.filePath = null;
+  assignment.submittedAt = null;
+
+  await assignment.save();
+
+  return { message: 'Evaluation reset successfully. Student can now re-upload.' };
 };

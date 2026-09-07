@@ -9,11 +9,7 @@ exports.protect = async (req, res, next) => {
       const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret123');
       req.user = await User.findById(decoded.id).select('-password');
       
-      // Single concurrent session logic: only one valid token allowed per user at a time
-      // Exception: PRINCIPAL role can have multiple concurrent sessions for shared lecturer access
-      if (req.user && req.user.role !== 'PRINCIPAL' && req.user.currentSessionId && req.user.currentSessionId !== decoded.sessionId) {
-        return res.status(401).json({ message: 'Your session has expired because your account was logged in from another device.' });
-      }
+      // Removed single concurrent session logic to allow multiple users to log in at the same time
 
       next();
     } catch (error) {
