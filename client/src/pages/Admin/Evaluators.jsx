@@ -230,9 +230,9 @@ export default function Evaluators() {
     setSuccess('');
 
     try {
+      const parsedSubjects = selectedSubjects.map(s => s.type === 'CORE' ? { subjectId: s.id } : { groupSubjectName: s.name });
       const payload = {
-        subjectId: selectedSubjects[0].type === 'CORE' ? selectedSubjects[0].id : undefined,
-        groupSubjectName: selectedSubjects[0].type === 'GROUP' ? selectedSubjects[0].name : undefined,
+        subjects: parsedSubjects,
         splitMethod,
         count: splitMethod === 'COUNT' ? Number(allocationCount) : undefined,
         collegeAllocations: splitMethod === 'COLLEGE' ? allocationColleges : undefined,
@@ -247,7 +247,7 @@ export default function Evaluators() {
         headers: { Authorization: `Bearer ${token}` }
       });
 
-      const allocatedSubjectName = selectedSubjects[0].name;
+      const allocatedSubjectName = selectedSubjects.map(s => s.name).join(', ');
       const evaluator = evaluators.find(ev => ev._id === allocationEvaluatorId);
       const evaluatorName = evaluator ? evaluator.fullName : 'Evaluator';
       setSuccess(`"${allocatedSubjectName}" assigned to ${evaluatorName}`);

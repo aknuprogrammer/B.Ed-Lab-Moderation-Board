@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Users, BookOpen, AlertCircle, CheckCircle, Filter, Edit, Download, Upload, RefreshCw, Search, X, Activity, FileText } from 'lucide-react';
+import { Users, BookOpen, AlertCircle, CheckCircle, Filter, Edit, Download, Upload, RefreshCw, Search, X, Activity, FileText, Trash2 } from 'lucide-react';
 import axios from 'axios';
 import SearchableDropdown from '../../components/SearchableDropdown';
 import { downloadAssignmentScoresXlsx } from '../../utils/exportUtils';
@@ -93,7 +93,8 @@ const AssignmentTable = ({
   selectedAssignmentIds,
   onToggleSelect,
   onToggleSelectAll,
-  loading = false
+  loading = false,
+  onDeleteAssignment
 }) => {
   const pagedData = data.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   const selectedSet = useMemo(() => new Set(selectedAssignmentIds), [selectedAssignmentIds]);
@@ -237,19 +238,30 @@ const AssignmentTable = ({
                     </div>
                   </td>
                   <td className="px-4 py-2.5 text-center">
-                    {assignment.filePath ? (
-                      <a
-                        href={`${API_BASE_URL}${assignment.filePath}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-teal-50 hover:bg-teal-600 text-teal-700 hover:text-white border border-teal-200 hover:border-teal-600 rounded-md text-xs font-semibold transition-all cursor-pointer shadow-sm"
-                        title="View Record PDF"
-                      >
-                        <FileText className="h-4 w-4" /> View
-                      </a>
-                    ) : (
-                      <span className="text-slate-400 italic text-xs">—</span>
-                    )}
+                    <div className="flex items-center justify-center gap-2">
+                      {assignment.filePath ? (
+                        <a
+                          href={`${API_BASE_URL}${assignment.filePath}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-teal-50 hover:bg-teal-600 text-teal-700 hover:text-white border border-teal-200 hover:border-teal-600 rounded-md text-xs font-semibold transition-all cursor-pointer shadow-sm"
+                          title="View Record PDF"
+                        >
+                          <FileText className="h-4 w-4" /> View
+                        </a>
+                      ) : (
+                        <span className="text-slate-400 italic text-xs">—</span>
+                      )}
+                      {onDeleteAssignment && (
+                        <button
+                          onClick={() => onDeleteAssignment(assignment)}
+                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors cursor-pointer"
+                          title="Delete Assignment"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))
@@ -719,6 +731,28 @@ const Assignments = () => {
       setError(err.response?.data?.message || 'Failed to update deadlines');
     }
     setTimeout(() => { setMessage(''); setError(''); }, 4000);
+  };
+
+  const handleDeleteAssignment = (assignment) => {
+    showAlert(
+      "Delete Assignment",
+      `Are you sure you want to delete the assignment for ${assignment.studentId?.fullName}?`,
+      "danger",
+      async () => {
+        try {
+          setMessage('Deleting assignment...');
+          const res = await axios.delete(`${API_BASE_URL}/api/admin/record/assignments/${assignment._id}`, {
+            headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+          });
+          setMessage(res.data.message || 'Assignment deleted successfully!');
+          fetchAssignments();
+          setRefreshTrigger(prev => prev + 1);
+        } catch (err) {
+          setError(err.response?.data?.message || 'Failed to delete assignment');
+        }
+        setTimeout(() => { setMessage(''); setError(''); }, 4000);
+      }
+    );
   };
 
   return (
@@ -1201,6 +1235,7 @@ const Assignments = () => {
             onToggleSelect={toggleSelectAssignment}
             onToggleSelectAll={handleToggleSelectAll}
             loading={loadingAssignments}
+            onDeleteAssignment={handleDeleteAssignment}
           />
 
           <AssignmentTable
@@ -1215,6 +1250,7 @@ const Assignments = () => {
             onToggleSelect={toggleSelectAssignment}
             onToggleSelectAll={handleToggleSelectAll}
             loading={loadingAssignments}
+            onDeleteAssignment={handleDeleteAssignment}
           />
         </div>
       )}

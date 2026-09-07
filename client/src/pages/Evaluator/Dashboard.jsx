@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, FileCheck, BookOpen, AlertCircle, FileText, Search, X, User as UserIcon, Activity } from 'lucide-react';
+import { LogOut, FileCheck, BookOpen, AlertCircle, FileText, Search, X, User as UserIcon, Activity, Edit2 } from 'lucide-react';
 import axios from 'axios';
 import SearchableDropdown from '../../components/SearchableDropdown';
 import SessionTimer from '../../components/SessionTimer';
@@ -87,6 +87,7 @@ const Dashboard = () => {
   const [activeTab, setActiveTab] = useState(''); // Active Subject _id
   const [submissions, setSubmissions] = useState([]);
   const [marks, setMarks] = useState({});
+  const [editingMarks, setEditingMarks] = useState({});
   const [currentPage, setCurrentPage] = useState(1);
   const [loadingSubjects, setLoadingSubjects] = useState(true);
   const [loadingRecords, setLoadingRecords] = useState(true);
@@ -215,6 +216,7 @@ const Dashboard = () => {
       setSubmissions(prev => prev.map(sub =>
         sub._id === id ? { ...sub, status: 'Evaluated', score: Number(data.score), feedback: data.remarks } : sub
       ));
+      setEditingMarks(prev => ({ ...prev, [id]: false }));
       setRefreshTrigger(prev => prev + 1);
       alert('Marks saved successfully!');
     } catch (err) {
@@ -659,14 +661,14 @@ const Dashboard = () => {
                         <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
                           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${sub.status === 'Evaluated' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'
                             }`}>
-                            {sub.status === 'Evaluated' ? 'Evaluated' : 'Pending Evaluation'}
+                            {sub.status === 'Evaluated' ? (editingMarks[sub._id] ? 'Re-evaluating' : 'Evaluated') : 'Pending Evaluation'}
                           </span>
                         </td>
                         <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm text-center font-medium">
                           {sub.suggestedMarks !== undefined && sub.suggestedMarks !== null ? sub.suggestedMarks : '—'}
                         </td>
                         <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
-                          {sub.status === 'Evaluated' ? (
+                          {sub.status === 'Evaluated' && !editingMarks[sub._id] ? (
                             <div className="font-bold text-slate-900">{sub.score} / {sub.maxMarks ?? sub.subjectId?.maxMarks ?? 100}</div>
                           ) : (
                             (() => {
@@ -706,7 +708,7 @@ const Dashboard = () => {
                           )}
                         </td>
                         <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
-                          {sub.status === 'Evaluated' ? (
+                          {sub.status === 'Evaluated' && !editingMarks[sub._id] ? (
                             <span className="text-slate-600 text-sm">{sub.feedback || '—'}</span>
                           ) : (
                             <input
@@ -719,15 +721,27 @@ const Dashboard = () => {
                           )}
                         </td>
                         <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm text-right">
-                          {sub.status === 'Evaluated' ? (
+                          {sub.status === 'Evaluated' && !editingMarks[sub._id] ? (
                             <div className="flex flex-col items-center gap-1">
-                              <button
-                                disabled
-                                className="px-4 py-1.5 bg-green-600 text-white rounded-md font-medium opacity-100 cursor-not-allowed"
-                                title="Marks saved"
-                              >
-                                Saved
-                              </button>
+                              <div className="flex items-center justify-center gap-2">
+                                <button
+                                  disabled
+                                  className="px-4 py-1.5 bg-green-600 text-white rounded-md font-medium opacity-100 cursor-not-allowed"
+                                  title="Marks saved"
+                                >
+                                  Saved
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setEditingMarks(prev => ({ ...prev, [sub._id]: true }));
+                                    setMarks(prev => ({ ...prev, [sub._id]: { score: sub.score, remarks: sub.feedback } }));
+                                  }}
+                                  className="p-1 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-md transition-colors cursor-pointer"
+                                  title="Edit marks"
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                </button>
+                              </div>
                               <span className="text-[10px] text-green-600 font-semibold leading-none">Marks saved</span>
                             </div>
                           ) : (
@@ -739,14 +753,27 @@ const Dashboard = () => {
                               const hasError = isExceeded || isNegative;
 
                               return (
-                                <button
-                                  onClick={() => handleSubmitMarks(sub._id)}
-                                  disabled={!enteredScore || hasError}
-                                  className="px-4 py-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-md font-medium transition-colors cursor-pointer"
-                                  title="Marks not saved"
-                                >
-                                  Submit
-                                </button>
+                                <div className="flex items-center gap-2 justify-center">
+                                  <button
+                                    onClick={() => handleSubmitMarks(sub._id)}
+                                    disabled={!enteredScore || hasError}
+                                    className="px-4 py-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-md font-medium transition-colors cursor-pointer"
+                                    title="Marks not saved"
+                                  >
+                                    Submit
+                                  </button>
+                                  {sub.status === 'Evaluated' && (
+                                    <button
+                                      onClick={() => {
+                                        setEditingMarks(prev => ({ ...prev, [sub._id]: false }));
+                                      }}
+                                      className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-md transition-colors cursor-pointer"
+                                      title="Cancel editing"
+                                    >
+                                      <X className="w-4 h-4" />
+                                    </button>
+                                  )}
+                                </div>
                               );
                             })()
                           )}

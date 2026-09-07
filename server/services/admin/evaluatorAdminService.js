@@ -6,15 +6,9 @@ const AppError = require('../../utils/AppError');
 const bcrypt = require('bcryptjs');
 
 const getReuploadFilter = async () => {
-  const cutoffDate = new Date('2026-08-28T00:00:00Z');
-  const sem2Subjects = await Subject.find({ semester: '2' }).distinct('_id');
-  const otherSemSubjects = await Subject.find({ semester: { $ne: '2' } }).distinct('_id');
-  return {
-    $or: [
-      { subjectId: { $in: sem2Subjects } },
-      { subjectId: { $in: otherSemSubjects }, submittedAt: { $gte: cutoffDate } }
-    ]
-  };
+  // Removing the date/semester restriction as the user is actively working with 1st semester assignments
+  // that were submitted prior to August 28th.
+  return {};
 };
 
 const getSemLevel = (sem) => {
@@ -364,13 +358,13 @@ exports.assignSubjectsToEvaluator = async (id, { allocations, subjectIds, groupS
 
 exports.getSubjectsWithSubmissions = async (mode = 'Regular') => {
   const reuploadFilter = await getReuploadFilter();
-  
+
   const query = {
     status: { $ne: 'Pending' },
     isAbsent: { $ne: true }
   };
 
-  const modeClause = mode === 'Supply' 
+  const modeClause = mode === 'Supply'
     ? { mode: 'Supply' }
     : { $or: [{ mode: 'Regular' }, { mode: { $exists: false } }, { mode: null }] };
 
@@ -438,7 +432,7 @@ exports.getSubjectAllocationStats = async ({ subjectId, groupSubjectName, subjec
   };
 
   const reuploadFilter = await getReuploadFilter();
-  const modeClause = mode === 'Supply' 
+  const modeClause = mode === 'Supply'
     ? { mode: 'Supply' }
     : { $or: [{ mode: 'Regular' }, { mode: { $exists: false } }, { mode: null }] };
 
@@ -447,7 +441,7 @@ exports.getSubjectAllocationStats = async ({ subjectId, groupSubjectName, subjec
     combinedAnd.push({ $or: query.$or });
     delete submittedQuery.$or;
   }
-  
+
   submittedQuery.$and = combinedAnd;
 
   const allAssignmentsForStats = await Assignment.find(submittedQuery)
@@ -458,7 +452,7 @@ exports.getSubjectAllocationStats = async ({ subjectId, groupSubjectName, subjec
   let total = 0;
   let allocated = 0;
   let unallocated = 0;
-  
+
   const collegeStats = {}; // { [collegeId]: { total, allocated, pending } }
   const evaluatorStatsMap = {};
 
@@ -473,7 +467,7 @@ exports.getSubjectAllocationStats = async ({ subjectId, groupSubjectName, subjec
     if (a.evaluatorId) {
       allocated++;
       if (colId) collegeStats[colId].allocated++;
-      
+
       const evId = a.evaluatorId._id.toString();
       if (!evaluatorStatsMap[evId]) {
         evaluatorStatsMap[evId] = {
@@ -520,11 +514,10 @@ exports.allocateSubjectBulk = async ({ subjectId, groupSubjectName, subjects, ev
   for (const s of parsedSubjects) {
     const query = { evaluatorId: null, status: { $ne: 'Pending' } };
     
-    const reuploadFilter = await getReuploadFilter();
-    const modeClause = mode === 'Supply' 
+    const reuploadFilter = await getReuploadFilter(); const modeClause = mode === 'Supply'
       ? { mode: 'Supply' }
       : { $or: [{ mode: 'Regular' }, { mode: { $exists: false } }, { mode: null }] };
-      
+
     query.$and = [reuploadFilter, modeClause];
     if (s.subjectId) query.subjectId = s.subjectId;
     else if (s.groupSubjectName) query.groupSubjectName = s.groupSubjectName;
@@ -706,7 +699,7 @@ exports.extendEvaluatorDeadline = async ({ evaluatorIds, subjects, valuationDead
   if (!valuationDeadline) {
     throw new AppError('Valuation deadline is required.', 400);
   }
-  
+
   let subjectQuery = [];
   if (subjects && Array.isArray(subjects) && subjects.length > 0) {
     subjects.forEach(sub => {
@@ -737,7 +730,7 @@ exports.extendEvaluatorDeadline = async ({ evaluatorIds, subjects, valuationDead
         { $or: subjectQuery }
       ]
     };
-    
+
     const result = await Assignment.updateMany(
       finalQuery,
       { $set: { valuationDeadline: new Date(valuationDeadline) } }

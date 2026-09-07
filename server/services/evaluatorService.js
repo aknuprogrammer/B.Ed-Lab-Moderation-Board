@@ -5,26 +5,26 @@ const AppError = require('../utils/AppError');
 exports.getAssignedSubjects = async (evaluatorId) => {
   const evaluator = await User.findById(evaluatorId).populate('subjects').lean();
   if (!evaluator) throw new AppError('Evaluator not found', 404);
-  
+
   const list = [];
   (evaluator.subjects || []).forEach(sub => {
-    list.push({ 
-      _id: sub._id, 
-      subCode: sub.subCode, 
-      subName: sub.subName, 
+    list.push({
+      _id: sub._id,
+      subCode: sub.subCode,
+      subName: sub.subName,
       isGroupSubject: false,
       createdAt: sub.createdAt
     });
   });
   (evaluator.groupSubjects || []).forEach((gSub, idx) => {
-    list.push({ 
-      _id: `group-${gSub.replace(/\s+/g, '-')}`, 
-      subCode: 'PEDAGOGY', 
-      subName: gSub, 
-      isGroupSubject: true 
+    list.push({
+      _id: `group-${gSub.replace(/\s+/g, '-')}`,
+      subCode: 'PEDAGOGY',
+      subName: gSub,
+      isGroupSubject: true
     });
   });
-  
+
   return list;
 };
 
@@ -32,9 +32,9 @@ exports.getAssignedRecords = async (evaluatorId) => {
   const evaluator = await User.findById(evaluatorId);
   if (!evaluator) throw new AppError('Evaluator not found', 404);
 
-  const records = await Assignment.find({ 
+  const records = await Assignment.find({
     evaluatorId: evaluatorId,
-    status: { $ne: 'Pending' } 
+    status: { $ne: 'Pending' }
   })
     .populate({
       path: 'studentId',
@@ -110,7 +110,7 @@ exports.gradeRecord = async ({ assignmentId, score, feedback, evaluatorId }) => 
   } else if (assignment.status !== 'Evaluated') {
     diffMessages.push(`Evaluated assignment with score '${score}'`);
   }
-  
+
   if (assignment.feedback !== feedback) {
     diffMessages.push(`feedback changed`);
   }
