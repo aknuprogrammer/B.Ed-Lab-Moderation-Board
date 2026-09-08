@@ -300,6 +300,28 @@ exports.resetEvaluation = async (req, res) => {
   }
 };
 
+exports.bulkResetEvaluation = async (req, res) => {
+  try {
+    const { assignmentIds } = req.body;
+    if (!assignmentIds || !Array.isArray(assignmentIds) || assignmentIds.length === 0) {
+      return res.status(400).json({ message: 'A non-empty array of assignment IDs is required.' });
+    }
+    const result = await evaluatorAdminService.bulkResetEvaluation(assignmentIds);
+    
+    activityLogService.logActivity({
+      userId: req.user._id,
+      userRole: req.user.role,
+      actionType: 'UPDATE_EVALUATION',
+      entityType: 'Assignment',
+      details: { description: `Bulk reset evaluation for ${assignmentIds.length} assignments to allow student re-upload.` }
+    }).catch(err => console.error("Activity logging failed:", err));
+
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ message: error.message });
+  }
+};
+
 exports.assignToEvaluator = async (req, res) => {
   try {
     const result = await evaluatorAdminService.assignToEvaluator(req.body);

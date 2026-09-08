@@ -836,3 +836,22 @@ exports.resetEvaluation = async (assignmentId) => {
 
   return { message: 'Evaluation reset successfully. Student can now re-upload.' };
 };
+
+exports.bulkResetEvaluation = async (assignmentIds) => {
+  const result = await Assignment.updateMany(
+    { _id: { $in: assignmentIds } },
+    {
+      $set: {
+        status: 'Pending',
+        score: null,
+        feedback: null,
+        evaluatorId: null,
+        valuationDeadline: null,
+        filePath: null,
+        submittedAt: null
+      }
+    }
+  );
+
+  return { message: `Successfully reset ${result.modifiedCount} evaluations. Students can now re-upload.` };
+};

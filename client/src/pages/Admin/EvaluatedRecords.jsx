@@ -92,7 +92,7 @@ const EvaluatedRecords = () => {
   const [supplyPaperPage, setSupplyPaperPage] = useState(1);
   const [reallocateTarget, setReallocateTarget] = useState(null);
   const [toastMessage, setToastMessage] = useState('');
-  
+  const [selectedRecordIds, setSelectedRecordIds] = useState([]);
   useEffect(() => {
     if (toastMessage) {
       const timer = setTimeout(() => setToastMessage(''), 4000);
@@ -148,6 +148,41 @@ const EvaluatedRecords = () => {
     } catch (err) {
       console.error('Failed to reset evaluation:', err);
       alert(err.response?.data?.message || 'Failed to reset evaluation.');
+    }
+  };
+
+  const handleBulkResetEvaluation = async () => {
+    if (selectedRecordIds.length === 0) return;
+    if (!window.confirm(`Are you sure you want to reset evaluation for ${selectedRecordIds.length} selected records?`)) return;
+    
+    try {
+      const res = await axios.post(`${API_BASE_URL}/api/admin/bulk-reset-evaluation`, 
+        { assignmentIds: selectedRecordIds }, 
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      );
+      setToastMessage(res.data.message || 'Bulk evaluation reset successfully.');
+      setSelectedRecordIds([]);
+      fetchAssignments();
+    } catch (err) {
+      console.error('Failed to bulk reset evaluation:', err);
+      alert(err.response?.data?.message || 'Failed to bulk reset evaluation.');
+    }
+  };
+
+  const handleSelectRecord = (id) => {
+    setSelectedRecordIds(prev => 
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
+  };
+
+  const handleSelectAll = (recordsList) => {
+    const zeroMarkIds = recordsList.filter(r => r.status === 'Evaluated' && r.score === 0).map(r => r._id);
+    const allSelected = zeroMarkIds.length > 0 && zeroMarkIds.every(id => selectedRecordIds.includes(id));
+    
+    if (allSelected) {
+      setSelectedRecordIds(prev => prev.filter(id => !zeroMarkIds.includes(id)));
+    } else {
+      setSelectedRecordIds(prev => [...new Set([...prev, ...zeroMarkIds])]);
     }
   };
 
@@ -308,8 +343,9 @@ const EvaluatedRecords = () => {
         'Remarks': r.feedback || ""
       }));
 
-      const approvedRegular = regularRecords.filter(r => r.isApprovedByBOS === true);
-      const approvedSupply = supplyRecords.filter(r => r.isApprovedByBOS === true);
+      const isZeroMarks = selectedStatus === 'ZeroMarks';
+      const approvedRegular = isZeroMarks ? regularRecords.filter(r => r.score === 0) : regularRecords.filter(r => r.isApprovedByBOS === true);
+      const approvedSupply = isZeroMarks ? supplyRecords.filter(r => r.score === 0) : supplyRecords.filter(r => r.isApprovedByBOS === true);
 
       if (approvedRegular.length > 0) {
         const regularSheet = XLSX.utils.json_to_sheet(formatExportData(approvedRegular));
@@ -394,7 +430,8 @@ const EvaluatedRecords = () => {
   const pagedSupplyPapers = supplyPaperRows.slice((supplyPaperPage - 1) * PAGE_SIZE, supplyPaperPage * PAGE_SIZE);
 
   const evaluatedInFiltered = filteredRecords.filter(r => r.status === 'Evaluated');
-  const isSubmissionsApproved = evaluatedInFiltered.length > 0 && evaluatedInFiltered.every(r => r.isApprovedByBOS === true);
+  const isZeroMarksFilter = selectedStatus === 'ZeroMarks';
+  const isSubmissionsApproved = evaluatedInFiltered.length > 0 && (isZeroMarksFilter || evaluatedInFiltered.every(r => r.isApprovedByBOS === true));
 
   const totalPapersCount = regularPaperRows.length + supplyPaperRows.length;
   const isPapersApproved = totalPapersCount > 0 && [...regularPaperRows, ...supplyPaperRows].every(isPaperApproved);
@@ -498,12 +535,22 @@ const EvaluatedRecords = () => {
             </div>
 
             {(filteredRecords.length > 0 || regularPaperRows.length > 0 || supplyPaperRows.length > 0) && (
-              <button
-                disabled={activeTab === 'submissions' ? !isSubmissionsApproved : !isPapersApproved}
-                onClick={activeTab === 'submissions' ? handleExportEvaluated : handleExportPaperGrades}
-                title={!(activeTab === 'submissions' ? isSubmissionsApproved : isPapersApproved) ? "Waiting for BOS approval" : ""}
-                className={`flex items-center justify-center px-3 py-1.5 rounded-md text-xs font-semibold shadow-sm transition-all whitespace-nowrap ${
-                  (activeTab === 'submissions' ? isSubmissionsApproved : isPapersApproved)
+              <div className="flex gap-2">
+                {selectedRecordIds.length > 0 && activeTab === 'submissions' && (
+                  <button
+                    onClick={handleBulkResetEvaluation}
+                    className="flex items-center justify-center px-3 py-1.5 rounded-md text-xs font-semibold shadow-sm transition-all whitespace-nowrap bg-rose-600 hover:bg-rose-700 text-white cursor-pointer"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                    Reset Selected ({selectedRecordIds.length})
+                  </button>
+                )}
+                <button
+                  disabled={activeTab === 'submissions' ? !isSubmissionsApproved : !isPapersApproved}
+                  onClick={activeTab === 'submissions' ? handleExportEvaluated : handleExportPaperGrades}
+                  title={!(activeTab === 'submissions' ? isSubmissionsApproved : isPapersApproved) ? (isZeroMarksFilter ? "" : "Waiting for BOS approval") : ""}
+                  className={`flex items-center justify-center px-3 py-1.5 rounded-md text-xs font-semibold shadow-sm transition-all whitespace-nowrap ${
+                    (activeTab === 'submissions' ? isSubmissionsApproved : isPapersApproved)
                     ? 'bg-teal-600 hover:bg-teal-700 text-white cursor-pointer'
                     : 'bg-slate-300 text-slate-500 cursor-not-allowed opacity-60'
                 }`}
@@ -511,6 +558,7 @@ const EvaluatedRecords = () => {
                 <Download className="h-3.5 w-3.5 mr-1.5" />
                 Export Excel
               </button>
+              </div>
             )}
           </div>
         </div>
@@ -528,6 +576,16 @@ const EvaluatedRecords = () => {
               <table className="w-full text-sm">
                 <thead className="sticky top-0 z-10 shadow-sm">
                   <tr className="bg-teal-700 text-white text-sm font-semibold">
+                    <th className="px-4 py-3 text-left whitespace-nowrap w-12">
+                      <input 
+                        type="checkbox" 
+                        className="rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer"
+                        checked={regularRecords.filter(r => r.status === 'Evaluated' && r.score === 0).length > 0 && 
+                                 regularRecords.filter(r => r.status === 'Evaluated' && r.score === 0).every(r => selectedRecordIds.includes(r._id))}
+                        onChange={() => handleSelectAll(regularRecords)}
+                        disabled={regularRecords.filter(r => r.status === 'Evaluated' && r.score === 0).length === 0}
+                      />
+                    </th>
                     <th className="px-4 py-3 text-left whitespace-nowrap">Student Name</th>
                     <th className="px-4 py-3 text-left whitespace-nowrap">Roll No.</th>
                     <th className="px-4 py-3 text-left whitespace-nowrap min-w-[12rem]">Document / Subject</th>
@@ -541,6 +599,16 @@ const EvaluatedRecords = () => {
                 <tbody>
                   {pagedRegularRecords.map((record) => (
                     <tr key={record._id} className="border-b border-slate-100 hover:bg-teal-50 transition-colors">
+                      <td className="px-4 py-2.5 text-center">
+                        {record.status === 'Evaluated' && record.score === 0 ? (
+                          <input 
+                            type="checkbox" 
+                            className="rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer"
+                            checked={selectedRecordIds.includes(record._id)}
+                            onChange={() => handleSelectRecord(record._id)}
+                          />
+                        ) : null}
+                      </td>
                       <td className="px-4 py-2.5 font-medium text-slate-900 whitespace-nowrap text-sm">{record.studentId?.fullName}</td>
                       <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">{record.studentId?.regdNo}</td>
                       <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
@@ -596,7 +664,7 @@ const EvaluatedRecords = () => {
                   ))}
                   {regularRecords.length === 0 && (
                     <tr>
-                      <td colSpan="7" className="px-6 py-8 text-center text-slate-500">No regular subject evaluations found.</td>
+                      <td colSpan="8" className="px-6 py-8 text-center text-slate-500">No regular subject evaluations found.</td>
                     </tr>
                   )}
                 </tbody>
@@ -616,6 +684,16 @@ const EvaluatedRecords = () => {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-teal-700 text-white text-sm font-semibold">
+                    <th className="px-4 py-3 text-left whitespace-nowrap w-12">
+                      <input 
+                        type="checkbox" 
+                        className="rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer"
+                        checked={supplyRecords.filter(r => r.status === 'Evaluated' && r.score === 0).length > 0 && 
+                                 supplyRecords.filter(r => r.status === 'Evaluated' && r.score === 0).every(r => selectedRecordIds.includes(r._id))}
+                        onChange={() => handleSelectAll(supplyRecords)}
+                        disabled={supplyRecords.filter(r => r.status === 'Evaluated' && r.score === 0).length === 0}
+                      />
+                    </th>
                     <th className="px-4 py-3 text-left whitespace-nowrap">Student Name</th>
                     <th className="px-4 py-3 text-left whitespace-nowrap">Roll No.</th>
                     <th className="px-4 py-3 text-left whitespace-nowrap min-w-[12rem]">Document / Subject</th>
@@ -629,6 +707,16 @@ const EvaluatedRecords = () => {
                 <tbody>
                   {pagedSupplyRecords.map((record) => (
                     <tr key={record._id} className="border-b border-slate-100 hover:bg-teal-50 transition-colors">
+                      <td className="px-4 py-2.5 text-center">
+                        {record.status === 'Evaluated' && record.score === 0 ? (
+                          <input 
+                            type="checkbox" 
+                            className="rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer"
+                            checked={selectedRecordIds.includes(record._id)}
+                            onChange={() => handleSelectRecord(record._id)}
+                          />
+                        ) : null}
+                      </td>
                       <td className="px-4 py-2.5 font-medium text-slate-900 whitespace-nowrap text-sm">{record.studentId?.fullName}</td>
                       <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">{record.studentId?.regdNo}</td>
                       <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
@@ -684,7 +772,7 @@ const EvaluatedRecords = () => {
                   ))}
                   {supplyRecords.length === 0 && (
                     <tr>
-                      <td colSpan="7" className="px-6 py-8 text-center text-slate-500">No supply subject evaluations found.</td>
+                      <td colSpan="8" className="px-6 py-8 text-center text-slate-500">No supply subject evaluations found.</td>
                     </tr>
                   )}
                 </tbody>
