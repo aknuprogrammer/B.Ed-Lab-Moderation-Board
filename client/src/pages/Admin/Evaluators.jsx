@@ -179,7 +179,6 @@ export default function Evaluators() {
   };
 
   const toggleSubject = (sub) => {
-    if (sub.isFullyAllocated) return;
     setSelectedSubjects(prev => {
       if (isSubjectSelected(sub)) return prev.filter(s => !(s.id === sub.id && s.type === sub.type));
       return [...prev, sub];
@@ -591,15 +590,14 @@ export default function Evaluators() {
                     <div
                       key={sub.type + '-' + sub.id}
                       onClick={() => toggleSubject(sub)}
-                      className={`flex items-center gap-3 p-3 rounded-md border transition-colors ${sub.isFullyAllocated
-                        ? 'bg-slate-50 border-slate-200 cursor-not-allowed opacity-60'
-                        : isSubjectSelected(sub)
+                      className={`flex items-center gap-3 p-3 rounded-md border transition-colors ${
+                        isSubjectSelected(sub)
                           ? 'bg-teal-50 border-teal-200 cursor-pointer'
                           : 'bg-white border-slate-200 hover:border-teal-300 cursor-pointer'
                         }`}
                     >
-                      <div className={`flex-shrink-0 ${sub.isFullyAllocated || isSubjectSelected(sub) ? 'text-teal-600' : 'text-slate-300'}`}>
-                        {(sub.isFullyAllocated || isSubjectSelected(sub)) ? <CheckSquare className="h-5 w-5" /> : <Square className="h-5 w-5" />}
+                      <div className={`flex-shrink-0 ${isSubjectSelected(sub) ? 'text-teal-600' : 'text-slate-300'}`}>
+                        {isSubjectSelected(sub) ? <CheckSquare className="h-5 w-5" /> : <Square className="h-5 w-5" />}
                       </div>
                       <div className="flex-1">
                         <p className="text-sm font-medium text-slate-800 line-clamp-1">{sub.name}</p>

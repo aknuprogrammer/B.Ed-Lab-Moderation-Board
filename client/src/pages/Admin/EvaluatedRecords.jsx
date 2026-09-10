@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ClipboardCheck, Search, Download, BookOpen, RefreshCw, Activity, Calendar } from 'lucide-react';
+import { ClipboardCheck, Search, Download, BookOpen, RefreshCw, Activity, Calendar, FileText } from 'lucide-react';
 import axios from 'axios';
 import { API_BASE_URL } from '../../utils/config';
 import ReallocateModal from '../../components/ReallocateModal';
@@ -78,6 +78,8 @@ const Pagination = ({ total, page, onPage, pageSize = 10 }) => {
   );
 };
 
+const isNoMarks = (score) => score === 0 || score === null || score === undefined || score === '';
+
 const EvaluatedRecords = () => {
   const [records, setRecords] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -93,6 +95,9 @@ const EvaluatedRecords = () => {
   const [reallocateTarget, setReallocateTarget] = useState(null);
   const [toastMessage, setToastMessage] = useState('');
   const [selectedRecordIds, setSelectedRecordIds] = useState([]);
+  const [resetModalData, setResetModalData] = useState({ open: false, type: '', payload: null });
+  const [resetDeadline, setResetDeadline] = useState('');
+
   useEffect(() => {
     if (toastMessage) {
       const timer = setTimeout(() => setToastMessage(''), 4000);
@@ -136,36 +141,43 @@ const EvaluatedRecords = () => {
     setTimeout(() => setToastMessage(''), 3000);
   };
 
-  const handleResetEvaluation = async (assignmentId) => {
-    if (!window.confirm("Are you sure you want to reset this evaluation? This will allow the student to re-upload their record.")) return;
+  const handleResetEvaluation = (assignmentId) => {
+    setResetModalData({ open: true, type: 'single', payload: assignmentId });
+    setResetDeadline('');
+  };
+
+  const handleBulkResetEvaluation = () => {
+    if (selectedRecordIds.length === 0) return;
+    setResetModalData({ open: true, type: 'bulk', payload: selectedRecordIds });
+    setResetDeadline('');
+  };
+
+  const submitResetEvaluation = async () => {
+    if (!resetDeadline) {
+      alert('Please select a new submission deadline.');
+      return;
+    }
+    
     try {
-      const res = await axios.post(`${API_BASE_URL}/api/admin/reset-evaluation`, { assignmentId }, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
-      setToastMessage(res.data.message || 'Evaluation reset successfully.');
+      if (resetModalData.type === 'single') {
+        const res = await axios.post(`${API_BASE_URL}/api/admin/reset-evaluation`, 
+          { assignmentId: resetModalData.payload, submissionDeadline: resetDeadline }, 
+          { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+        );
+        setToastMessage(res.data.message || 'Evaluation reset successfully.');
+      } else if (resetModalData.type === 'bulk') {
+        const res = await axios.post(`${API_BASE_URL}/api/admin/bulk-reset-evaluation`, 
+          { assignmentIds: resetModalData.payload, submissionDeadline: resetDeadline }, 
+          { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+        );
+        setToastMessage(res.data.message || 'Bulk evaluation reset successfully.');
+        setSelectedRecordIds([]);
+      }
+      setResetModalData({ open: false, type: '', payload: null });
       fetchAssignments();
-      setTimeout(() => setToastMessage(''), 3000);
     } catch (err) {
       console.error('Failed to reset evaluation:', err);
       alert(err.response?.data?.message || 'Failed to reset evaluation.');
-    }
-  };
-
-  const handleBulkResetEvaluation = async () => {
-    if (selectedRecordIds.length === 0) return;
-    if (!window.confirm(`Are you sure you want to reset evaluation for ${selectedRecordIds.length} selected records?`)) return;
-    
-    try {
-      const res = await axios.post(`${API_BASE_URL}/api/admin/bulk-reset-evaluation`, 
-        { assignmentIds: selectedRecordIds }, 
-        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
-      );
-      setToastMessage(res.data.message || 'Bulk evaluation reset successfully.');
-      setSelectedRecordIds([]);
-      fetchAssignments();
-    } catch (err) {
-      console.error('Failed to bulk reset evaluation:', err);
-      alert(err.response?.data?.message || 'Failed to bulk reset evaluation.');
     }
   };
 
@@ -176,7 +188,7 @@ const EvaluatedRecords = () => {
   };
 
   const handleSelectAll = (recordsList) => {
-    const zeroMarkIds = recordsList.filter(r => r.status === 'Evaluated' && r.score === 0).map(r => r._id);
+    const zeroMarkIds = recordsList.filter(r => r.status === 'Evaluated' && isNoMarks(r.score)).map(r => r._id);
     const allSelected = zeroMarkIds.length > 0 && zeroMarkIds.every(id => selectedRecordIds.includes(id));
     
     if (allSelected) {
@@ -211,7 +223,7 @@ const EvaluatedRecords = () => {
     const queryMatch = nameMatch || regdNoMatch || subjectMatch;
 
     const statusMatch = !selectedStatus 
-      || (selectedStatus === 'ZeroMarks' ? record.score === 0 : record.status === selectedStatus);
+      || (selectedStatus === 'ZeroMarks' ? isNoMarks(record.score) : record.status === selectedStatus);
     const semMatch = !selectedSemester || (record.subjectId?.semester === selectedSemester || record.studentId?.currentSemester === selectedSemester);
 
     return queryMatch && statusMatch && semMatch;
@@ -344,8 +356,8 @@ const EvaluatedRecords = () => {
       }));
 
       const isZeroMarks = selectedStatus === 'ZeroMarks';
-      const approvedRegular = isZeroMarks ? regularRecords.filter(r => r.score === 0) : regularRecords.filter(r => r.isApprovedByBOS === true);
-      const approvedSupply = isZeroMarks ? supplyRecords.filter(r => r.score === 0) : supplyRecords.filter(r => r.isApprovedByBOS === true);
+      const approvedRegular = isZeroMarks ? regularRecords.filter(r => isNoMarks(r.score)) : regularRecords.filter(r => r.isApprovedByBOS === true);
+      const approvedSupply = isZeroMarks ? supplyRecords.filter(r => isNoMarks(r.score)) : supplyRecords.filter(r => r.isApprovedByBOS === true);
 
       if (approvedRegular.length > 0) {
         const regularSheet = XLSX.utils.json_to_sheet(formatExportData(approvedRegular));
@@ -511,7 +523,7 @@ const EvaluatedRecords = () => {
                 <option value="">-- All Statuses --</option>
                 <option value="Submitted">Pending Evaluation</option>
                 <option value="Evaluated">Evaluation Completed</option>
-                <option value="ZeroMarks">Zero Marks (0)</option>
+                <option value="ZeroMarks">No Marks / Zero (0)</option>
               </select>
             )}
 
@@ -580,10 +592,10 @@ const EvaluatedRecords = () => {
                       <input 
                         type="checkbox" 
                         className="rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer"
-                        checked={regularRecords.filter(r => r.status === 'Evaluated' && r.score === 0).length > 0 && 
-                                 regularRecords.filter(r => r.status === 'Evaluated' && r.score === 0).every(r => selectedRecordIds.includes(r._id))}
+                        checked={regularRecords.filter(r => r.status === 'Evaluated' && isNoMarks(r.score)).length > 0 && 
+                                 regularRecords.filter(r => r.status === 'Evaluated' && isNoMarks(r.score)).every(r => selectedRecordIds.includes(r._id))}
                         onChange={() => handleSelectAll(regularRecords)}
-                        disabled={regularRecords.filter(r => r.status === 'Evaluated' && r.score === 0).length === 0}
+                        disabled={regularRecords.filter(r => r.status === 'Evaluated' && isNoMarks(r.score)).length === 0}
                       />
                     </th>
                     <th className="px-4 py-3 text-left whitespace-nowrap">Student Name</th>
@@ -600,7 +612,7 @@ const EvaluatedRecords = () => {
                   {pagedRegularRecords.map((record) => (
                     <tr key={record._id} className="border-b border-slate-100 hover:bg-teal-50 transition-colors">
                       <td className="px-4 py-2.5 text-center">
-                        {record.status === 'Evaluated' && record.score === 0 ? (
+                        {record.status === 'Evaluated' && isNoMarks(record.score) ? (
                           <input 
                             type="checkbox" 
                             className="rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer"
@@ -640,6 +652,18 @@ const EvaluatedRecords = () => {
                       </td>
                       <td className="px-4 py-2.5 whitespace-nowrap text-right">
                         <div className="flex items-center justify-end gap-2">
+                          {record.filePath && (
+                            <a
+                              href={`${API_BASE_URL}${record.filePath}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center px-2 py-1 bg-teal-50 hover:bg-teal-600 text-teal-700 hover:text-white border border-teal-200 hover:border-teal-600 rounded text-xs font-semibold cursor-pointer shadow-sm transition-colors"
+                              title="View Record PDF"
+                            >
+                              <FileText className="w-3 h-3 mr-1" />
+                              View
+                            </a>
+                          )}
                           {record.status !== 'Evaluated' && (
                             <button
                               onClick={() => setReallocateTarget(record)}
@@ -649,7 +673,7 @@ const EvaluatedRecords = () => {
                               Re-allocate
                             </button>
                           )}
-                          {record.status === 'Evaluated' && record.score === 0 && (
+                          {record.status === 'Evaluated' && isNoMarks(record.score) && (
                             <button
                               onClick={() => handleResetEvaluation(record._id)}
                               className="inline-flex items-center px-2 py-1 bg-white border border-rose-200 hover:bg-rose-50 text-rose-700 rounded text-xs font-semibold cursor-pointer shadow-sm transition-colors"
@@ -688,10 +712,10 @@ const EvaluatedRecords = () => {
                       <input 
                         type="checkbox" 
                         className="rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer"
-                        checked={supplyRecords.filter(r => r.status === 'Evaluated' && r.score === 0).length > 0 && 
-                                 supplyRecords.filter(r => r.status === 'Evaluated' && r.score === 0).every(r => selectedRecordIds.includes(r._id))}
+                        checked={supplyRecords.filter(r => r.status === 'Evaluated' && isNoMarks(r.score)).length > 0 && 
+                                 supplyRecords.filter(r => r.status === 'Evaluated' && isNoMarks(r.score)).every(r => selectedRecordIds.includes(r._id))}
                         onChange={() => handleSelectAll(supplyRecords)}
-                        disabled={supplyRecords.filter(r => r.status === 'Evaluated' && r.score === 0).length === 0}
+                        disabled={supplyRecords.filter(r => r.status === 'Evaluated' && isNoMarks(r.score)).length === 0}
                       />
                     </th>
                     <th className="px-4 py-3 text-left whitespace-nowrap">Student Name</th>
@@ -708,7 +732,7 @@ const EvaluatedRecords = () => {
                   {pagedSupplyRecords.map((record) => (
                     <tr key={record._id} className="border-b border-slate-100 hover:bg-teal-50 transition-colors">
                       <td className="px-4 py-2.5 text-center">
-                        {record.status === 'Evaluated' && record.score === 0 ? (
+                        {record.status === 'Evaluated' && isNoMarks(record.score) ? (
                           <input 
                             type="checkbox" 
                             className="rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer"
@@ -748,6 +772,18 @@ const EvaluatedRecords = () => {
                       </td>
                       <td className="px-4 py-2.5 whitespace-nowrap text-right">
                         <div className="flex items-center justify-end gap-2">
+                          {record.filePath && (
+                            <a
+                              href={`${API_BASE_URL}${record.filePath}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center px-2 py-1 bg-teal-50 hover:bg-teal-600 text-teal-700 hover:text-white border border-teal-200 hover:border-teal-600 rounded text-xs font-semibold cursor-pointer shadow-sm transition-colors"
+                              title="View Record PDF"
+                            >
+                              <FileText className="w-3 h-3 mr-1" />
+                              View
+                            </a>
+                          )}
                           {record.status !== 'Evaluated' && (
                             <button
                               onClick={() => setReallocateTarget(record)}
@@ -757,7 +793,7 @@ const EvaluatedRecords = () => {
                               Re-allocate
                             </button>
                           )}
-                          {record.status === 'Evaluated' && record.score === 0 && (
+                          {record.status === 'Evaluated' && isNoMarks(record.score) && (
                             <button
                               onClick={() => handleResetEvaluation(record._id)}
                               className="inline-flex items-center px-2 py-1 bg-white border border-rose-200 hover:bg-rose-50 text-rose-700 rounded text-xs font-semibold cursor-pointer shadow-sm transition-colors"
@@ -907,7 +943,54 @@ const EvaluatedRecords = () => {
             <Pagination total={supplyPaperRows.length} page={supplyPaperPage} onPage={setSupplyPaperPage} />
           </>
         )}
+        
       </div>
+
+      {resetModalData.open && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden animate-slide-in">
+            <div className="bg-slate-50 border-b border-slate-100 px-6 py-4 flex items-center justify-between">
+              <h3 className="font-bold text-slate-800 text-lg">Reset Evaluation</h3>
+              <button onClick={() => setResetModalData({ open: false, type: '', payload: null })} className="text-slate-400 hover:text-slate-600 transition-colors">
+                &times;
+              </button>
+            </div>
+            <div className="p-6">
+              <p className="text-sm text-slate-600 mb-4">
+                Are you sure you want to reset {resetModalData.type === 'bulk' ? `these ${resetModalData.payload.length} evaluations` : 'this evaluation'}?
+                <br /><br />
+                Please select a new submission deadline for the student(s) to re-upload their records.
+              </p>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-slate-700 mb-1">New Submission Deadline <span className="text-red-500">*</span></label>
+                <input
+                  type="date"
+                  required
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+                  value={resetDeadline}
+                  onChange={(e) => setResetDeadline(e.target.value)}
+                />
+              </div>
+              <div className="flex justify-end gap-3 mt-6">
+                <button
+                  onClick={() => setResetModalData({ open: false, type: '', payload: null })}
+                  className="px-4 py-2 text-sm font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={submitResetEvaluation}
+                  disabled={!resetDeadline}
+                  className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors shadow-sm disabled:opacity-50 cursor-pointer"
+                >
+                  Confirm Reset
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {reallocateTarget && (
         <ReallocateModal
           assignment={reallocateTarget}

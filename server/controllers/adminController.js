@@ -280,11 +280,10 @@ exports.getEvaluatorAssignmentsGrouped = async (req, res) => {
 
 exports.resetEvaluation = async (req, res) => {
   try {
-    const { assignmentId } = req.body;
-    if (!assignmentId) {
-      return res.status(400).json({ message: 'Assignment ID is required.' });
-    }
-    const result = await evaluatorAdminService.resetEvaluation(assignmentId);
+    const { assignmentId, submissionDeadline } = req.body;
+    if (!assignmentId) return res.status(400).json({ message: 'Assignment ID is required' });
+
+    const result = await evaluatorAdminService.resetEvaluation(assignmentId, submissionDeadline);
     
     activityLogService.logActivity({
       userId: req.user._id,
@@ -302,11 +301,12 @@ exports.resetEvaluation = async (req, res) => {
 
 exports.bulkResetEvaluation = async (req, res) => {
   try {
-    const { assignmentIds } = req.body;
-    if (!assignmentIds || !Array.isArray(assignmentIds) || assignmentIds.length === 0) {
-      return res.status(400).json({ message: 'A non-empty array of assignment IDs is required.' });
+    const { assignmentIds, submissionDeadline } = req.body;
+    if (!assignmentIds || !Array.isArray(assignmentIds)) {
+      return res.status(400).json({ message: 'Valid assignment IDs array is required' });
     }
-    const result = await evaluatorAdminService.bulkResetEvaluation(assignmentIds);
+
+    const result = await evaluatorAdminService.bulkResetEvaluation(assignmentIds, submissionDeadline);
     
     activityLogService.logActivity({
       userId: req.user._id,

@@ -817,7 +817,7 @@ exports.resetAllAllocations = async () => {
   };
 };
 
-exports.resetEvaluation = async (assignmentId) => {
+exports.resetEvaluation = async (assignmentId, submissionDeadline) => {
   const assignment = await Assignment.findById(assignmentId);
   if (!assignment) {
     throw new AppError('Assignment not found.', 404);
@@ -832,25 +832,33 @@ exports.resetEvaluation = async (assignmentId) => {
   assignment.filePath = null;
   assignment.submittedAt = null;
 
+  if (submissionDeadline) {
+    assignment.deadline = new Date(submissionDeadline);
+  }
+
   await assignment.save();
 
   return { message: 'Evaluation reset successfully. Student can now re-upload.' };
 };
 
-exports.bulkResetEvaluation = async (assignmentIds) => {
+exports.bulkResetEvaluation = async (assignmentIds, submissionDeadline) => {
+  const updateFields = {
+    status: 'Pending',
+    score: null,
+    feedback: null,
+    evaluatorId: null,
+    valuationDeadline: null,
+    filePath: null,
+    submittedAt: null
+  };
+
+  if (submissionDeadline) {
+    updateFields.deadline = new Date(submissionDeadline);
+  }
+
   const result = await Assignment.updateMany(
     { _id: { $in: assignmentIds } },
-    {
-      $set: {
-        status: 'Pending',
-        score: null,
-        feedback: null,
-        evaluatorId: null,
-        valuationDeadline: null,
-        filePath: null,
-        submittedAt: null
-      }
-    }
+    { $set: updateFields }
   );
 
   return { message: `Successfully reset ${result.modifiedCount} evaluations. Students can now re-upload.` };
