@@ -130,6 +130,7 @@ const BOSDashboard = () => {
   const [papersData, setPapersData] = useState({ regular: [], supply: [] });
   const [approvalsTab, setApprovalsTab] = useState('records'); // 'records' or 'papers'
   const [approvalsSearch, setApprovalsSearch] = useState('');
+  const [resultStatusFilter, setResultStatusFilter] = useState('All');
 
   const fetchPendingPrincipals = async () => {
     setLoading(true);
@@ -368,20 +369,20 @@ const BOSDashboard = () => {
 
   const filteredRegularPapers = (papersData.regular || []).filter(p => {
     const term = approvalsSearch.toLowerCase();
-    return (
-      (p.fullName || '').toLowerCase().includes(term) ||
+    const matchesSearch = (p.fullName || '').toLowerCase().includes(term) ||
       (p.regdNo || '').toLowerCase().includes(term) ||
-      (p.paperName || '').toLowerCase().includes(term)
-    );
+      (p.paperName || '').toLowerCase().includes(term);
+    const matchesStatus = resultStatusFilter === 'All' || p.resultStatus === resultStatusFilter;
+    return matchesSearch && matchesStatus;
   });
 
   const filteredSupplyPapers = (papersData.supply || []).filter(p => {
     const term = approvalsSearch.toLowerCase();
-    return (
-      (p.fullName || '').toLowerCase().includes(term) ||
+    const matchesSearch = (p.fullName || '').toLowerCase().includes(term) ||
       (p.regdNo || '').toLowerCase().includes(term) ||
-      (p.paperName || '').toLowerCase().includes(term)
-    );
+      (p.paperName || '').toLowerCase().includes(term);
+    const matchesStatus = resultStatusFilter === 'All' || p.resultStatus === resultStatusFilter;
+    return matchesSearch && matchesStatus;
   });
 
   return (
@@ -718,25 +719,39 @@ const BOSDashboard = () => {
                 </button>
               </div>
 
-              <div className="relative w-full sm:w-56 mb-2 sm:mb-0">
-                <input
-                  type="text"
-                  placeholder="Search evaluations..."
-                  value={approvalsSearch}
-                  onChange={(e) => setApprovalsSearch(e.target.value)}
-                  className="w-full pl-9 pr-8 py-1.5 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-white"
-                />
-                <svg className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-                {approvalsSearch && (
-                  <button
-                    onClick={() => setApprovalsSearch('')}
-                    className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+              <div className="flex items-center gap-3 w-full sm:w-auto mb-2 sm:mb-0">
+                {approvalsTab === 'papers' && (
+                  <select
+                    value={resultStatusFilter}
+                    onChange={(e) => setResultStatusFilter(e.target.value)}
+                    className="pl-3 pr-8 py-1.5 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-white cursor-pointer"
                   >
-                    <X className="h-4 w-4" />
-                  </button>
+                    <option value="All">All Statuses</option>
+                    <option value="PASS">Pass</option>
+                    <option value="FAIL">Fail</option>
+                    <option value="ABSENT">Absent</option>
+                  </select>
                 )}
+                <div className="relative w-full sm:w-56">
+                  <input
+                    type="text"
+                    placeholder="Search evaluations..."
+                    value={approvalsSearch}
+                    onChange={(e) => setApprovalsSearch(e.target.value)}
+                    className="w-full pl-9 pr-8 py-1.5 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-white"
+                  />
+                  <svg className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                  {approvalsSearch && (
+                    <button
+                      onClick={() => setApprovalsSearch('')}
+                      className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -939,8 +954,8 @@ const BOSDashboard = () => {
                                 {row.obtainedScore} <span className="text-[10px] text-slate-400 font-normal">/ {row.maxMarks}</span>
                               </td>
                               <td className="px-4 py-2.5 text-center whitespace-nowrap">
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded border ${row.isPassed ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-800'} text-[10px] font-semibold`}>
-                                  {row.isPassed ? 'PASS' : 'FAIL'}
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded border ${row.resultStatus === 'PASS' ? 'border-green-200 bg-green-50 text-green-800' : row.resultStatus === 'FAIL' ? 'border-red-200 bg-red-50 text-red-800' : 'border-amber-200 bg-amber-50 text-amber-800'} text-[10px] font-semibold`}>
+                                  {row.resultStatus || (row.isPassed ? 'PASS' : 'FAIL')}
                                 </span>
                               </td>
                               <td className="px-4 py-2.5 text-right whitespace-nowrap">
@@ -1012,8 +1027,8 @@ const BOSDashboard = () => {
                                 {row.obtainedScore} <span className="text-[10px] text-slate-400 font-normal">/ {row.maxMarks}</span>
                               </td>
                               <td className="px-4 py-2.5 text-center whitespace-nowrap">
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded border ${row.isPassed ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-800'} text-[10px] font-semibold`}>
-                                  {row.isPassed ? 'PASS' : 'FAIL'}
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded border ${row.resultStatus === 'PASS' ? 'border-green-200 bg-green-50 text-green-800' : row.resultStatus === 'FAIL' ? 'border-red-200 bg-red-50 text-red-800' : 'border-amber-200 bg-amber-50 text-amber-800'} text-[10px] font-semibold`}>
+                                  {row.resultStatus || (row.isPassed ? 'PASS' : 'FAIL')}
                                 </span>
                               </td>
                               <td className="px-4 py-2.5 text-right whitespace-nowrap">

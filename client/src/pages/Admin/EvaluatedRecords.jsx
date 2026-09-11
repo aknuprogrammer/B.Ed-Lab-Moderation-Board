@@ -84,6 +84,7 @@ const EvaluatedRecords = () => {
   const [records, setRecords] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
+  const [resultStatusFilter, setResultStatusFilter] = useState('');
   const [selectedSemester, setSelectedSemester] = useState('');
   const [activeTab, setActiveTab] = useState('submissions');
   const [papers, setPapers] = useState([]);
@@ -115,7 +116,7 @@ const EvaluatedRecords = () => {
       const res = await axios.get(`${API_BASE_URL}/api/admin/assignments`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
-      const activeRecords = res.data.filter(a => a.status !== 'Pending');
+      const activeRecords = res.data.filter(a => a.status !== 'Pending' || a.isAbsent);
       const sorted = activeRecords.sort((a, b) => new Date(b.submittedAt || b.updatedAt || b.createdAt || 0) - new Date(a.submittedAt || a.updatedAt || a.createdAt || 0));
       setRecords(sorted);
     } catch (err) {
@@ -226,7 +227,14 @@ const EvaluatedRecords = () => {
       || (selectedStatus === 'ZeroMarks' ? isNoMarks(record.score) : record.status === selectedStatus);
     const semMatch = !selectedSemester || (record.subjectId?.semester === selectedSemester || record.studentId?.currentSemester === selectedSemester);
 
-    return queryMatch && statusMatch && semMatch;
+    const resultMatch = !resultStatusFilter || (
+      resultStatusFilter === 'ABSENT' ? record.isAbsent :
+      resultStatusFilter === 'FAIL' ? (record.status === 'Evaluated' && !record.isAbsent && record.score < (record.subjectId?.subPassMarks != null ? record.subjectId.subPassMarks : ((record.maxMarks || record.subjectId?.maxMarks || 100) * 0.4))) :
+      resultStatusFilter === 'PASS' ? (record.status === 'Evaluated' && !record.isAbsent && record.score >= (record.subjectId?.subPassMarks != null ? record.subjectId.subPassMarks : ((record.maxMarks || record.subjectId?.maxMarks || 100) * 0.4))) :
+      true
+    );
+
+    return queryMatch && statusMatch && semMatch && resultMatch;
   });
 
   const regularRecords = filteredRecords.filter(r => !r.mode || r.mode === 'Regular');
@@ -244,6 +252,7 @@ const EvaluatedRecords = () => {
         regdNo: regdNo,
         collegeName: r.studentId?.collegeId?.collegeName || "ADIKAVI NANNAYA UNIVERSITY",
         degree: r.studentId?.courseId?.courseName || "Programme",
+        courseCode: r.studentId?.courseId?.courseCode || "",
         semester: r.studentId?.currentSemester || r.subjectId?.semester || "",
         assignments: []
       };
@@ -272,6 +281,7 @@ const EvaluatedRecords = () => {
       let evaluatedCount = 0;
       const totalSubjectsCount = paper.subjectIds?.length || 0;
       let hasFailedSubject = false;
+      let hasAbsentSubject = false;
 
       (paper.subjectIds || []).forEach(sub => {
         const subId = sub._id || sub;
@@ -279,7 +289,7 @@ const EvaluatedRecords = () => {
 
         if (!assignment && fallbackMap) {
           const fallbackAssignment = fallbackMap.get(subId.toString());
-          if (fallbackAssignment && fallbackAssignment.status === 'Evaluated') {
+          if (fallbackAssignment && (fallbackAssignment.status === 'Evaluated' || fallbackAssignment.isAbsent)) {
             assignment = fallbackAssignment;
           }
         }
@@ -287,18 +297,31 @@ const EvaluatedRecords = () => {
         paperMaxMarks += sub.maxMarks || 0;
 
         if (assignment) {
-          obtainedScore += assignment.score || 0;
           evaluatedCount++;
-
-          const passMark = sub.subPassMarks != null ? sub.subPassMarks : (sub.maxMarks ? sub.maxMarks * 0.4 : 0);
-          if (assignment.score < passMark) {
-            hasFailedSubject = true;
+          if (assignment.isAbsent) {
+            hasAbsentSubject = true;
+          } else {
+            obtainedScore += assignment.score || 0;
+            const passMark = sub.subPassMarks != null ? sub.subPassMarks : (sub.maxMarks ? sub.maxMarks * 0.4 : 0);
+            if (assignment.score < passMark) {
+              hasFailedSubject = true;
+            }
           }
         }
       });
 
       const isEvaluated = evaluatedCount === totalSubjectsCount && totalSubjectsCount > 0;
-      const isPassed = isEvaluated ? (!hasFailedSubject && obtainedScore >= (paper.passMarks || 0)) : false;
+      let resultStatus = 'PENDING';
+      if (isEvaluated) {
+        if (hasAbsentSubject) {
+          resultStatus = 'ABSENT';
+        } else if (hasFailedSubject || obtainedScore < (paper.passMarks || 0)) {
+          resultStatus = 'FAIL';
+        } else {
+          resultStatus = 'PASS';
+        }
+      }
+      const isPassed = resultStatus === 'PASS';
 
       return {
         studentId: student._id,
@@ -307,14 +330,17 @@ const EvaluatedRecords = () => {
         regdNo: student.regdNo,
         semester: paper.semester || student.semester,
         collegeName: student.collegeName,
+        courseCode: student.courseCode || '',
+        courseName: student.degree || 'Programme',
         degree: student.degree,
         paperName: paper.paperName || paper.paperCode || "Paper",
         paperCode: paper.paperCode,
-        obtainedScore: isEvaluated ? obtainedScore : null,
+        obtainedScore: isEvaluated ? (hasAbsentSubject ? 'ABS' : obtainedScore) : null,
         maxMarks: paperMaxMarks,
         passMarks: paper.passMarks || 0,
         status: isEvaluated ? 'Evaluated' : 'Pending',
         isPassed,
+        resultStatus,
         mode: mode
       };
     };
@@ -336,24 +362,31 @@ const EvaluatedRecords = () => {
     app.mode === row.mode
   );
 
+  const filteredRegularPapers = regularPaperRows.filter(r => !resultStatusFilter || r.resultStatus === resultStatusFilter);
+  const filteredSupplyPapers = supplyPaperRows.filter(r => !resultStatusFilter || r.resultStatus === resultStatusFilter);
+
   const handleExportEvaluated = async () => {
     try {
       const XLSX = await import('xlsx');
       const workbook = XLSX.utils.book_new();
 
-      const formatExportData = (rows) => rows.map(r => ({
-        'College Name': r.studentId?.collegeId?.collegeName || "ADIKAVI NANNAYA UNIVERSITY",
-        'Course': r.studentId?.courseId?.courseName || "Programme",
-        'Academic Year': r.academicYear || r.studentId?.academicYear || "",
-        'Semester': r.studentId?.currentSemester || r.subjectId?.semester || "",
-        'Mode': r.mode || "Regular",
-        'Registration Number': r.studentId?.regdNo || "",
-        'Student Name': r.studentId?.fullName || "",
-        'Subject Title': r.groupSubjectName || r.subjectId?.subName || "",
-        'Max Marks': r.maxMarks || r.subjectId?.maxMarks || 100,
-        'Marks Awarded': r.score,
-        'Remarks': r.feedback || ""
-      }));
+      const formatExportData = (rows) => rows.map(r => {
+        const isAbsent = r.isAbsent === true;
+        const marks = isAbsent ? '' : (r.score != null ? r.score : '');
+        const attendance = (!isAbsent && marks !== '') ? 'PRESENT' : 'ABSENT';
+
+        return {
+          'Course_Code': r.studentId?.courseId?.courseCode || '95',
+          'Course_name': r.studentId?.courseId?.courseName || 'B.Ed.',
+          'Entry_Type': 'First Entry',
+          'Marks_type': 'PRACTICALS AWARD SHEET',
+          'Sub_code': r.subjectId?.subCode || '',
+          'Sub_name': r.groupSubjectName || r.subjectId?.subName || '',
+          'Regd_no': r.studentId?.regdNo || '',
+          'Marks_secured': marks,
+          'Attendance': attendance
+        };
+      });
 
       const isZeroMarks = selectedStatus === 'ZeroMarks';
       const approvedRegular = isZeroMarks ? regularRecords.filter(r => isNoMarks(r.score)) : regularRecords.filter(r => r.isApprovedByBOS === true);
@@ -392,20 +425,26 @@ const EvaluatedRecords = () => {
       const XLSX = await import('xlsx');
       const workbook = XLSX.utils.book_new();
 
-      const formatExportData = (rows) => rows.map(row => ({
-        'College Name': row.collegeName,
-        'Course': row.degree,
-        'Semester': row.semester,
-        'Registration Number': row.regdNo,
-        'Student Name': row.fullName,
-        'Paper Name': row.paperName,
-        'Paper Code': row.paperCode,
-        'Total Marks': row.obtainedScore !== null ? row.obtainedScore : 'Pending',
-        'Result': row.obtainedScore !== null ? (row.isPassed ? 'PASS' : 'FAIL') : 'Pending'
-      }));
+      const formatExportData = (rows) => rows.map(row => {
+        const isAbsent = row.resultStatus === 'ABSENT' || row.obtainedScore === 'ABS';
+        const marks = isAbsent ? '' : (row.obtainedScore != null ? row.obtainedScore : '');
+        const attendance = (!isAbsent && marks !== '') ? 'PRESENT' : 'ABSENT';
 
-      const approvedRegularPapers = regularPaperRows.filter(isPaperApproved);
-      const approvedSupplyPapers = supplyPaperRows.filter(isPaperApproved);
+        return {
+          'Course_Code': row.courseCode || '95',
+          'Course_name': row.courseName || row.degree || 'B.Ed.',
+          'Entry_Type': 'First Entry',
+          'Marks_type': 'PRACTICALS AWARD SHEET',
+          'Sub_code': row.paperCode || '',
+          'Sub_name': row.paperName || '',
+          'Regd_no': row.regdNo || '',
+          'Marks_secured': marks,
+          'Attendance': attendance
+        };
+      });
+
+      const approvedRegularPapers = filteredRegularPapers.filter(isPaperApproved);
+      const approvedSupplyPapers = filteredSupplyPapers.filter(isPaperApproved);
 
       if (approvedRegularPapers.length > 0) {
         const regularSheet = XLSX.utils.json_to_sheet(formatExportData(approvedRegularPapers));
@@ -438,15 +477,15 @@ const EvaluatedRecords = () => {
   const pagedRegularRecords = regularRecords.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
   const pagedSupplyRecords = supplyRecords.slice((supplyPage - 1) * PAGE_SIZE, supplyPage * PAGE_SIZE);
 
-  const pagedRegularPapers = regularPaperRows.slice((paperPage - 1) * PAGE_SIZE, paperPage * PAGE_SIZE);
-  const pagedSupplyPapers = supplyPaperRows.slice((supplyPaperPage - 1) * PAGE_SIZE, supplyPaperPage * PAGE_SIZE);
+  const pagedRegularPapers = filteredRegularPapers.slice((paperPage - 1) * PAGE_SIZE, paperPage * PAGE_SIZE);
+  const pagedSupplyPapers = filteredSupplyPapers.slice((supplyPaperPage - 1) * PAGE_SIZE, supplyPaperPage * PAGE_SIZE);
 
-  const evaluatedInFiltered = filteredRecords.filter(r => r.status === 'Evaluated');
+  const evaluatedInFiltered = filteredRecords.filter(r => r.status === 'Evaluated' || r.isAbsent);
   const isZeroMarksFilter = selectedStatus === 'ZeroMarks';
   const isSubmissionsApproved = evaluatedInFiltered.length > 0 && (isZeroMarksFilter || evaluatedInFiltered.every(r => r.isApprovedByBOS === true));
 
-  const totalPapersCount = regularPaperRows.length + supplyPaperRows.length;
-  const isPapersApproved = totalPapersCount > 0 && [...regularPaperRows, ...supplyPaperRows].every(isPaperApproved);
+  const totalPapersCount = filteredRegularPapers.length + filteredSupplyPapers.length;
+  const isPapersApproved = totalPapersCount > 0 && [...filteredRegularPapers, ...filteredSupplyPapers].every(isPaperApproved);
 
   return (
     <div className="p-4 sm:p-4 bg-slate-50 w-full animate-fade-in">
@@ -490,7 +529,7 @@ const EvaluatedRecords = () => {
         <div className="p-4 border-b border-slate-100 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <h2 className="text-lg font-semibold text-slate-800 flex items-center">
             <ClipboardCheck className="h-5 w-5 mr-2 text-teal-600" />
-            {activeTab === 'submissions' ? `Evaluated Submissions (${filteredRecords.length})` : `Aggregated Paper Grades (${regularPaperRows.length + supplyPaperRows.length})`}
+            {activeTab === 'submissions' ? `Evaluated Submissions (${filteredRecords.length})` : `Aggregated Paper Grades (${filteredRegularPapers.length + filteredSupplyPapers.length})`}
           </h2>
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
             <select
@@ -508,6 +547,23 @@ const EvaluatedRecords = () => {
               {uniqueSemesters.map(sem => (
                 <option key={sem} value={sem}>Semester {sem}</option>
               ))}
+            </select>
+
+            <select
+              value={resultStatusFilter}
+              onChange={(e) => {
+                setResultStatusFilter(e.target.value);
+                setCurrentPage(1);
+                setSupplyPage(1);
+                setPaperPage(1);
+                setSupplyPaperPage(1);
+              }}
+              className="px-3 py-1.5 border border-slate-300 rounded-md focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none transition-all text-slate-800 bg-white cursor-pointer"
+            >
+              <option value="">-- All Results --</option>
+              <option value="PASS">Pass</option>
+              <option value="FAIL">Fail</option>
+              <option value="ABSENT">Absent</option>
             </select>
 
             {activeTab === 'submissions' && (
@@ -635,9 +691,11 @@ const EvaluatedRecords = () => {
                       </td>
                       <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
                         <div className="flex flex-col gap-1 items-start">
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${record.status === 'Evaluated' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'
-                            }`}>
-                            {record.status === 'Evaluated' ? 'Evaluated' : 'Pending Evaluation'}
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                            record.isAbsent ? 'bg-amber-100 text-amber-800' :
+                            record.status === 'Evaluated' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'
+                          }`}>
+                            {record.isAbsent ? 'Absent' : record.status === 'Evaluated' ? 'Evaluated' : 'Pending Evaluation'}
                           </span>
                           {record.status === 'Evaluated' && (
                             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${record.isApprovedByBOS ? 'bg-teal-100 text-teal-800' : 'bg-amber-100 text-amber-800'}`}>
@@ -647,8 +705,10 @@ const EvaluatedRecords = () => {
                         </div>
                       </td>
                       <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm text-right">
-                        <span className="font-bold text-emerald-600 text-base">{record.score !== null ? record.score : '-'}</span>
-                        <span className="text-slate-400 text-xs ml-1">/ {record.maxMarks}</span>
+                        <span className={`font-bold text-base ${record.isAbsent ? 'text-amber-600' : 'text-emerald-600'}`}>
+                          {record.isAbsent ? 'ABS' : (record.score !== null ? record.score : '-')}
+                        </span>
+                        {!record.isAbsent && <span className="text-slate-400 text-xs ml-1">/ {record.maxMarks}</span>}
                       </td>
                       <td className="px-4 py-2.5 whitespace-nowrap text-right">
                         <div className="flex items-center justify-end gap-2">
@@ -755,9 +815,11 @@ const EvaluatedRecords = () => {
                       </td>
                       <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
                         <div className="flex flex-col gap-1 items-start">
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${record.status === 'Evaluated' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'
-                            }`}>
-                            {record.status === 'Evaluated' ? 'Evaluated' : 'Pending Evaluation'}
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                            record.isAbsent ? 'bg-amber-100 text-amber-800' :
+                            record.status === 'Evaluated' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'
+                          }`}>
+                            {record.isAbsent ? 'Absent' : record.status === 'Evaluated' ? 'Evaluated' : 'Pending Evaluation'}
                           </span>
                           {record.status === 'Evaluated' && (
                             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${record.isApprovedByBOS ? 'bg-teal-100 text-teal-800' : 'bg-amber-100 text-amber-800'}`}>
@@ -767,8 +829,10 @@ const EvaluatedRecords = () => {
                         </div>
                       </td>
                       <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm text-right">
-                        <span className="font-bold text-emerald-600 text-base">{record.score !== null ? record.score : '-'}</span>
-                        <span className="text-slate-400 text-xs ml-1">/ {record.maxMarks}</span>
+                        <span className={`font-bold text-base ${record.isAbsent ? 'text-amber-600' : 'text-emerald-600'}`}>
+                          {record.isAbsent ? 'ABS' : (record.score !== null ? record.score : '-')}
+                        </span>
+                        {!record.isAbsent && <span className="text-slate-400 text-xs ml-1">/ {record.maxMarks}</span>}
                       </td>
                       <td className="px-4 py-2.5 whitespace-nowrap text-right">
                         <div className="flex items-center justify-end gap-2">
@@ -852,10 +916,15 @@ const EvaluatedRecords = () => {
                         </td>
                         <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm text-center">
                           {row.obtainedScore !== null ? (
-                            <span className={`inline-flex flex-col items-center px-3 py-1.5 rounded-md text-xs font-bold ${row.isPassed ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'
-                              }`}>
-                              <span className="text-sm">{row.obtainedScore} / {row.maxMarks}</span>
-                              <span className="text-[9px] opacity-75 font-semibold mt-0.5">{row.isPassed ? 'PASS' : 'FAIL'}</span>
+                            <span className={`inline-flex flex-col items-center px-3 py-1.5 rounded-md text-xs font-bold ${
+                              row.resultStatus === 'PASS' 
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                                : row.resultStatus === 'FAIL' 
+                                ? 'bg-red-50 text-red-700 border border-red-200' 
+                                : 'bg-amber-50 text-amber-700 border border-amber-200'
+                            }`}>
+                              <span className="text-sm">{row.obtainedScore === 'ABS' ? 'ABS' : `${row.obtainedScore} / ${row.maxMarks}`}</span>
+                              <span className="text-[9px] opacity-75 font-semibold mt-0.5">{row.resultStatus || (row.isPassed ? 'PASS' : 'FAIL')}</span>
                             </span>
                           ) : (
                             <span className="text-slate-400 italic text-xs">Pending</span>
@@ -869,7 +938,7 @@ const EvaluatedRecords = () => {
                       </tr>
                     );
                   })}
-                  {regularPaperRows.length === 0 && (
+                  {filteredRegularPapers.length === 0 && (
                     <tr>
                       <td colSpan="6" className="px-6 py-8 text-center text-slate-500 text-sm">No regular paper grades found.</td>
                     </tr>
@@ -878,14 +947,14 @@ const EvaluatedRecords = () => {
               </table>
             </div>
 
-            <Pagination total={regularPaperRows.length} page={paperPage} onPage={setPaperPage} />
+            <Pagination total={filteredRegularPapers.length} page={paperPage} onPage={setPaperPage} />
 
             {/* Backlog Papers Table */}
             <div className="p-4 bg-slate-50 border-y border-slate-200 flex items-center gap-2 mt-4">
               <span className="p-1 bg-white rounded shadow-sm border border-slate-200">
                 <BookOpen className="h-4 w-4 text-purple-600" />
               </span>
-              <h3 className="font-bold text-slate-800 text-sm">Supply (Backlog) Paper Grades ({supplyPaperRows.length})</h3>
+              <h3 className="font-bold text-slate-800 text-sm">Supply (Backlog) Paper Grades ({filteredSupplyPapers.length})</h3>
               <span className="text-xs text-slate-500 font-medium ml-2 bg-white px-2 py-0.5 rounded border border-slate-200">Consolidated with Regular marks</span>
             </div>
             <div className="overflow-x-auto sleek-scrollbar">
@@ -914,10 +983,15 @@ const EvaluatedRecords = () => {
                         </td>
                         <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm text-center">
                           {row.obtainedScore !== null ? (
-                            <span className={`inline-flex flex-col items-center px-3 py-1.5 rounded-md text-xs font-bold ${row.isPassed ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'
-                              }`}>
-                              <span className="text-sm">{row.obtainedScore} / {row.maxMarks}</span>
-                              <span className="text-[9px] opacity-75 font-semibold mt-0.5">{row.isPassed ? 'PASS' : 'FAIL'}</span>
+                            <span className={`inline-flex flex-col items-center px-3 py-1.5 rounded-md text-xs font-bold ${
+                              row.resultStatus === 'PASS' 
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                                : row.resultStatus === 'FAIL' 
+                                ? 'bg-red-50 text-red-700 border border-red-200' 
+                                : 'bg-amber-50 text-amber-700 border border-amber-200'
+                            }`}>
+                              <span className="text-sm">{row.obtainedScore === 'ABS' ? 'ABS' : `${row.obtainedScore} / ${row.maxMarks}`}</span>
+                              <span className="text-[9px] opacity-75 font-semibold mt-0.5">{row.resultStatus || (row.isPassed ? 'PASS' : 'FAIL')}</span>
                             </span>
                           ) : (
                             <span className="text-slate-400 italic text-xs">Pending</span>
@@ -931,7 +1005,7 @@ const EvaluatedRecords = () => {
                       </tr>
                     );
                   })}
-                  {supplyPaperRows.length === 0 && (
+                  {filteredSupplyPapers.length === 0 && (
                     <tr>
                       <td colSpan="6" className="px-6 py-8 text-center text-slate-500 text-sm">No supply (backlog) paper grades found.</td>
                     </tr>
@@ -940,7 +1014,7 @@ const EvaluatedRecords = () => {
               </table>
             </div>
 
-            <Pagination total={supplyPaperRows.length} page={supplyPaperPage} onPage={setSupplyPaperPage} />
+            <Pagination total={filteredSupplyPapers.length} page={supplyPaperPage} onPage={setSupplyPaperPage} />
           </>
         )}
         

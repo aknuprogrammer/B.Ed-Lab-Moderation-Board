@@ -120,13 +120,18 @@ exports.getEvaluatedPapers = async () => {
   const papers = await Paper.find({}).populate('subjectIds').lean();
   
   // 2. Fetch all evaluated assignments populated with student & subject
-  const assignments = await Assignment.find({ status: 'Evaluated' })
+  const assignments = await Assignment.find({ 
+    $or: [
+      { status: 'Evaluated' },
+      { isAbsent: true }
+    ]
+  })
     .populate({
       path: 'studentId',
-      select: 'fullName regdNo currentSemester academicYear collegeId profileImage',
+      select: 'regdNo fullName currentSemester collegeId',
       populate: { path: 'collegeId', select: 'collegeName' }
     })
-    .populate('subjectId')
+    .populate('subjectId', 'subCode subName subPassMarks maxMarks semester')
     .lean();
 
   // 3. Fetch existing paper approvals
@@ -169,6 +174,7 @@ exports.getEvaluatedPapers = async () => {
       let evaluatedCount = 0;
       const totalSubjectsCount = paper.subjectIds?.length || 0;
       let hasFailedSubject = false;
+      let hasAbsentSubject = false;
 
       (paper.subjectIds || []).forEach(sub => {
         const subId = sub._id || sub;
@@ -176,7 +182,7 @@ exports.getEvaluatedPapers = async () => {
 
         if (!assignment && fallbackMap) {
           const fallbackAssignment = fallbackMap.get(subId.toString());
-          if (fallbackAssignment && fallbackAssignment.status === 'Evaluated') {
+          if (fallbackAssignment && (fallbackAssignment.status === 'Evaluated' || fallbackAssignment.isAbsent)) {
             assignment = fallbackAssignment;
           }
         }
@@ -184,19 +190,31 @@ exports.getEvaluatedPapers = async () => {
         paperMaxMarks += sub.maxMarks || 0;
 
         if (assignment) {
-          obtainedScore += assignment.score || 0;
           evaluatedCount++;
-          const passMark = sub.subPassMarks != null ? sub.subPassMarks : (sub.maxMarks ? sub.maxMarks * 0.4 : 0);
-          if (assignment.score < passMark) {
-            hasFailedSubject = true;
+          if (assignment.isAbsent) {
+            hasAbsentSubject = true;
+          } else {
+            obtainedScore += assignment.score || 0;
+            const passMark = sub.subPassMarks != null ? sub.subPassMarks : (sub.maxMarks ? sub.maxMarks * 0.4 : 0);
+            if (assignment.score < passMark) {
+              hasFailedSubject = true;
+            }
           }
         }
       });
 
       const isEvaluated = evaluatedCount === totalSubjectsCount && totalSubjectsCount > 0;
-      const isPassed = isEvaluated ? (!hasFailedSubject && obtainedScore >= (paper.passMarks || 0)) : false;
-
+      let resultStatus = 'PENDING';
+      
       if (isEvaluated) {
+        if (hasAbsentSubject) {
+          resultStatus = 'ABSENT';
+        } else if (hasFailedSubject || obtainedScore < (paper.passMarks || 0)) {
+          resultStatus = 'FAIL';
+        } else {
+          resultStatus = 'PASS';
+        }
+
         return {
           studentId: student._id,
           fullName: student.fullName,
@@ -207,10 +225,11 @@ exports.getEvaluatedPapers = async () => {
           paperId: paper._id,
           paperName: paper.paperName || paper.paperCode || "Paper",
           paperCode: paper.paperCode,
-          obtainedScore,
+          obtainedScore: hasAbsentSubject ? 'ABS' : obtainedScore,
           maxMarks: paperMaxMarks,
           passMarks: paper.passMarks || 0,
-          isPassed,
+          isPassed: resultStatus === 'PASS',
+          resultStatus,
           mode
         };
       }
