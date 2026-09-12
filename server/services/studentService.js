@@ -97,6 +97,7 @@ exports.submitAssignment = async ({ assignmentId, file, user, note, extractedTex
   }
 
   assignment.status = 'Submitted';
+  assignment.isAbsent = false;
   assignment.filePath = fileUrl;
   assignment.submittedAt = new Date();
   if (note) assignment.studentNote = note;

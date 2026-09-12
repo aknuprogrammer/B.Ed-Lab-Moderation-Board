@@ -123,6 +123,7 @@ exports.gradeRecord = async ({ assignmentId, score, feedback, evaluatorId }) => 
   assignment.score = score;
   assignment.feedback = feedback;
   assignment.status = 'Evaluated';
+  assignment.isAbsent = false;
   assignment.evaluatorId = evaluatorId;
   await assignment.save();
 

@@ -116,8 +116,7 @@ const EvaluatedRecords = () => {
       const res = await axios.get(`${API_BASE_URL}/api/admin/assignments`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
-      const activeRecords = res.data.filter(a => a.status !== 'Pending' || a.isAbsent);
-      const sorted = activeRecords.sort((a, b) => new Date(b.submittedAt || b.updatedAt || b.createdAt || 0) - new Date(a.submittedAt || a.updatedAt || a.createdAt || 0));
+      const sorted = (res.data || []).sort((a, b) => new Date(b.submittedAt || b.updatedAt || b.createdAt || 0) - new Date(a.submittedAt || a.updatedAt || a.createdAt || 0));
       setRecords(sorted);
     } catch (err) {
       console.error('Failed to load assignments');
@@ -218,6 +217,9 @@ const EvaluatedRecords = () => {
   const uniqueSemesters = [...new Set(records.map(r => r.subjectId?.semester || r.studentId?.currentSemester).filter(Boolean))].sort();
 
   const filteredRecords = records.filter(record => {
+    const isActive = record.status !== 'Pending' || record.isAbsent;
+    if (!isActive && !selectedStatus) return false;
+
     const nameMatch = (record.studentId?.fullName || '').toLowerCase().includes(searchTerm.toLowerCase());
     const regdNoMatch = (record.studentId?.regdNo || '').toLowerCase().includes(searchTerm.toLowerCase());
     const subjectMatch = (record.groupSubjectName || record.subjectId?.subName || '').toLowerCase().includes(searchTerm.toLowerCase());
@@ -240,13 +242,13 @@ const EvaluatedRecords = () => {
   const regularRecords = filteredRecords.filter(r => !r.mode || r.mode === 'Regular');
   const supplyRecords = filteredRecords.filter(r => r.mode === 'Supply');
 
-  // Group by Student
-  const studentsMap = {};
-  filteredRecords.forEach(r => {
+  // Group ALL records by Student for Paper-Level computation
+  const allStudentsMap = {};
+  records.forEach(r => {
     const regdNo = r.studentId?.regdNo;
     if (!regdNo) return;
-    if (!studentsMap[regdNo]) {
-      studentsMap[regdNo] = {
+    if (!allStudentsMap[regdNo]) {
+      allStudentsMap[regdNo] = {
         _id: r.studentId?._id || r.studentId?.toString(),
         fullName: r.studentId?.fullName || "Student",
         regdNo: regdNo,
@@ -257,13 +259,13 @@ const EvaluatedRecords = () => {
         assignments: []
       };
     }
-    studentsMap[regdNo].assignments.push(r);
+    allStudentsMap[regdNo].assignments.push(r);
   });
 
   const regularPaperRows = [];
   const supplyPaperRows = [];
 
-  const studentsList = Object.values(studentsMap).map(student => {
+  Object.values(allStudentsMap).forEach(student => {
     const studentAssignments = student.assignments;
 
     // Group assignments by mode
@@ -273,15 +275,13 @@ const EvaluatedRecords = () => {
     const regularMap = new Map(regularAssignments.map(a => [a.subjectId?._id?.toString() || a.subjectId?.toString() || '', a]));
     const supplyMap = new Map(supplyAssignments.map(a => [a.subjectId?._id?.toString() || a.subjectId?.toString() || '', a]));
 
-    const filteredPapers = selectedSemester ? papers.filter(p => p.semester === selectedSemester) : papers;
-
     const buildPaperScore = (paper, assignmentMap, mode, fallbackMap = null) => {
       let obtainedScore = 0;
       let paperMaxMarks = 0;
       let evaluatedCount = 0;
       const totalSubjectsCount = paper.subjectIds?.length || 0;
       let hasFailedSubject = false;
-      let hasAbsentSubject = false;
+      let absentOrMissingCount = 0;
 
       (paper.subjectIds || []).forEach(sub => {
         const subId = sub._id || sub;
@@ -289,37 +289,32 @@ const EvaluatedRecords = () => {
 
         if (!assignment && fallbackMap) {
           const fallbackAssignment = fallbackMap.get(subId.toString());
-          if (fallbackAssignment && (fallbackAssignment.status === 'Evaluated' || fallbackAssignment.isAbsent)) {
+          if (fallbackAssignment) {
             assignment = fallbackAssignment;
           }
         }
 
         paperMaxMarks += sub.maxMarks || 0;
 
-        if (assignment) {
+        if (assignment && assignment.status === 'Evaluated' && !assignment.isAbsent && assignment.score != null) {
           evaluatedCount++;
-          if (assignment.isAbsent) {
-            hasAbsentSubject = true;
-          } else {
-            obtainedScore += assignment.score || 0;
-            const passMark = sub.subPassMarks != null ? sub.subPassMarks : (sub.maxMarks ? sub.maxMarks * 0.4 : 0);
-            if (assignment.score < passMark) {
-              hasFailedSubject = true;
-            }
+          obtainedScore += assignment.score || 0;
+          const passMark = sub.subPassMarks != null ? sub.subPassMarks : (sub.maxMarks ? sub.maxMarks * 0.4 : 0);
+          if (assignment.score < passMark) {
+            hasFailedSubject = true;
           }
+        } else {
+          absentOrMissingCount++;
         }
       });
 
-      const isEvaluated = evaluatedCount === totalSubjectsCount && totalSubjectsCount > 0;
       let resultStatus = 'PENDING';
-      if (isEvaluated) {
-        if (hasAbsentSubject) {
-          resultStatus = 'ABSENT';
-        } else if (hasFailedSubject || obtainedScore < (paper.passMarks || 0)) {
-          resultStatus = 'FAIL';
-        } else {
-          resultStatus = 'PASS';
-        }
+      if (absentOrMissingCount === totalSubjectsCount) {
+        resultStatus = 'ABSENT';
+      } else if (hasFailedSubject || absentOrMissingCount > 0 || obtainedScore < (paper.passMarks || 0)) {
+        resultStatus = 'FAIL';
+      } else {
+        resultStatus = 'PASS';
       }
       const isPassed = resultStatus === 'PASS';
 
@@ -335,25 +330,23 @@ const EvaluatedRecords = () => {
         degree: student.degree,
         paperName: paper.paperName || paper.paperCode || "Paper",
         paperCode: paper.paperCode,
-        obtainedScore: isEvaluated ? (hasAbsentSubject ? 'ABS' : obtainedScore) : null,
+        obtainedScore: (absentOrMissingCount === totalSubjectsCount) ? 'ABS' : obtainedScore,
         maxMarks: paperMaxMarks,
         passMarks: paper.passMarks || 0,
-        status: isEvaluated ? 'Evaluated' : 'Pending',
+        status: (absentOrMissingCount === 0) ? 'Evaluated' : 'Pending',
         isPassed,
         resultStatus,
         mode: mode
       };
     };
 
-    filteredPapers.forEach(paper => {
+    papers.forEach(paper => {
       const hasRegular = paper.subjectIds?.some(sub => regularMap.has(sub._id ? sub._id.toString() : sub.toString()));
       if (hasRegular) regularPaperRows.push(buildPaperScore(paper, regularMap, 'Regular'));
 
       const hasSupply = paper.subjectIds?.some(sub => supplyMap.has(sub._id ? sub._id.toString() : sub.toString()));
       if (hasSupply) supplyPaperRows.push(buildPaperScore(paper, supplyMap, 'Supply', regularMap));
     });
-
-    return student;
   });
 
   const isPaperApproved = (row) => paperApprovals.some(app => 
@@ -362,8 +355,20 @@ const EvaluatedRecords = () => {
     app.mode === row.mode
   );
 
-  const filteredRegularPapers = regularPaperRows.filter(r => !resultStatusFilter || r.resultStatus === resultStatusFilter);
-  const filteredSupplyPapers = supplyPaperRows.filter(r => !resultStatusFilter || r.resultStatus === resultStatusFilter);
+  const matchesPaperFilter = (row) => {
+    const term = searchTerm.toLowerCase();
+    const matchesSearch = !term ||
+      (row.fullName || '').toLowerCase().includes(term) ||
+      (row.regdNo || '').toLowerCase().includes(term) ||
+      (row.paperName || '').toLowerCase().includes(term) ||
+      (row.collegeName || '').toLowerCase().includes(term);
+    const matchesStatus = !resultStatusFilter || row.resultStatus === resultStatusFilter;
+    const matchesSem = !selectedSemester || row.semester === selectedSemester;
+    return matchesSearch && matchesStatus && matchesSem;
+  };
+
+  const filteredRegularPapers = regularPaperRows.filter(matchesPaperFilter);
+  const filteredSupplyPapers = supplyPaperRows.filter(matchesPaperFilter);
 
   const handleExportEvaluated = async () => {
     try {
