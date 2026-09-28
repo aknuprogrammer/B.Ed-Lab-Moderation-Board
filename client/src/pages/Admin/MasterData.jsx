@@ -853,6 +853,7 @@ const MasterData = () => {
   const [pages, setPages] = useState({}); // { students: 1, colleges: 1, … }
   const [searchQuery, setSearchQuery] = useState(''); // Global search state
   const [selectedSemesterFilter, setSelectedSemesterFilter] = useState('');
+  const [selectedStudentStatusFilter, setSelectedStudentStatusFilter] = useState('');
   const [showActivity, setShowActivity] = useState(false);
   const [showRecordFormatModal, setShowRecordFormatModal] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
@@ -974,6 +975,7 @@ const MasterData = () => {
     setPage(1); // reset page on tab switch
     setSearchQuery(''); // reset search on tab switch
     setSelectedSemesterFilter(''); // reset semester filter on tab switch
+    setSelectedStudentStatusFilter(''); // reset student status filter on tab switch
   }, [activeTab]);
 
   const refreshTab = () => {
@@ -1057,6 +1059,11 @@ const MasterData = () => {
     if ((activeTab === 'students' || activeTab === 'papers' || activeTab === 'subjects') && selectedSemesterFilter) {
       const rowSem = activeTab === 'students' ? row.currentSemester : row.semester;
       if (rowSem !== selectedSemesterFilter) return false;
+    }
+
+    if (activeTab === 'students' && selectedStudentStatusFilter) {
+      if (selectedStudentStatusFilter === 'registered' && !row.isSetupComplete) return false;
+      if (selectedStudentStatusFilter === 'pending' && row.isSetupComplete) return false;
     }
 
     if (!searchQuery) return true;
@@ -1188,12 +1195,39 @@ const MasterData = () => {
                   setSelectedSemesterFilter(e.target.value);
                   setPage(1);
                 }}
-                className="w-full pl-3 pr-8 py-1.5 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-white"
+                className="w-full sm:w-auto pl-3 pr-8 py-1.5 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-white"
               >
                 <option value="">All Semesters</option>
                 {[...new Set(allRows.map(r => activeTab === 'students' ? r.currentSemester : r.semester).filter(Boolean))].sort().map(sem => (
                   <option key={sem} value={sem}>Semester {sem}</option>
                 ))}
+              </select>
+            )}
+
+            {/* Students Face Registration Status Dropdown (Registered / Pending) */}
+            {activeTab === 'students' && (
+              <select
+                value={selectedStudentStatusFilter}
+                onChange={(e) => {
+                  setSelectedStudentStatusFilter(e.target.value);
+                  setPage(1);
+                }}
+                className="w-full sm:w-auto pl-3 pr-8 py-1.5 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-white font-medium text-slate-700"
+              >
+                {(() => {
+                  const semRows = selectedSemesterFilter
+                    ? allRows.filter(r => r.currentSemester === selectedSemesterFilter)
+                    : allRows;
+                  const regCount = semRows.filter(r => r.isSetupComplete).length;
+                  const pendCount = semRows.filter(r => !r.isSetupComplete).length;
+                  return (
+                    <>
+                      <option value="">All Status ({semRows.length})</option>
+                      <option value="registered">Registered ({regCount})</option>
+                      <option value="pending">Pending Setup ({pendCount})</option>
+                    </>
+                  );
+                })()}
               </select>
             )}
 

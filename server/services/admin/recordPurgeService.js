@@ -10,7 +10,7 @@ const PaperApproval = require('../../models/PaperApproval');
  * Permanently purge assignment database records and delete uploaded PDF files from server disk.
  * Returns count of deleted records and reclaimed disk space in Megabytes (MB).
  */
-exports.purgeAssignmentRecords = async ({ semester, collegeId, status, mode, search, resetEvaluators, retainBacklogCandidates = true }) => {
+exports.purgeAssignmentRecords = async ({ semester, collegeId, status, mode, search, resetEvaluators, retainBacklogCandidates = false }) => {
   const query = {};
   if (status && status !== 'all') query.status = status;
   if (mode && mode !== 'all') query.mode = mode;
@@ -46,27 +46,98 @@ exports.purgeAssignmentRecords = async ({ semester, collegeId, status, mode, sea
     .populate('subjectId', 'subPassMarks maxMarks')
     .lean();
 
-  if (targetAssignments.length === 0) {
-    return { deletedCount: 0, freedSpaceMB: 0, message: 'No records found matching purge criteria.' };
-  }
-
+  const uploadsDir = path.resolve(__dirname, '../../uploads');
   let totalBytesFreed = 0;
   let deletedFilesCount = 0;
+
+  if (targetAssignments.length === 0) {
+    // If no database records matched (e.g. already purged), still clean orphaned PDF files on disk for general purge
+    if ((!semester || semester === 'all') && (!collegeId || collegeId === 'all')) {
+      try {
+        if (fs.existsSync(uploadsDir)) {
+          const diskFiles = fs.readdirSync(uploadsDir);
+          for (const file of diskFiles) {
+            if (file.toLowerCase().endsWith('.pdf')) {
+              const fullPath = path.join(uploadsDir, file);
+              try {
+                if (fs.existsSync(fullPath)) {
+                  const stats = fs.statSync(fullPath);
+                  totalBytesFreed += stats.size || 0;
+                  fs.unlinkSync(fullPath);
+                  deletedFilesCount++;
+                }
+              } catch (e) {
+                console.error(`Failed to delete orphaned PDF ${file}:`, e);
+              }
+            }
+          }
+        }
+      } catch (dirErr) {
+        console.error('Failed to clean uploads directory:', dirErr);
+      }
+    }
+
+    const freedMB = (totalBytesFreed / (1024 * 1024)).toFixed(2);
+    return {
+      deletedCount: 0,
+      deletedFilesCount,
+      freedSpaceMB: Number(freedMB),
+      message: deletedFilesCount > 0 
+        ? `Cleaned ${deletedFilesCount} leftover PDF files from server disk (${freedMB} MB).`
+        : 'No records found matching purge criteria.'
+    };
+  }
 
   // Unlink stored PDF files from filesystem for all target assignments
   for (const asg of targetAssignments) {
     if (asg.filePath) {
       try {
-        const fullDiskPath = path.resolve(__dirname, '../../..', asg.filePath.replace(/^\//, ''));
-        if (fs.existsSync(fullDiskPath)) {
-          const stats = fs.statSync(fullDiskPath);
-          totalBytesFreed += stats.size || 0;
-          fs.unlinkSync(fullDiskPath);
-          deletedFilesCount++;
+        const fileNameOnly = path.basename(asg.filePath);
+        const possiblePaths = [
+          path.resolve(uploadsDir, fileNameOnly),
+          path.resolve(__dirname, '../..', asg.filePath.replace(/^\//, '')),
+          path.resolve(process.cwd(), 'uploads', fileNameOnly),
+          path.resolve(__dirname, '../../..', asg.filePath.replace(/^\//, ''))
+        ];
+
+        for (const fullDiskPath of possiblePaths) {
+          if (fs.existsSync(fullDiskPath)) {
+            const stats = fs.statSync(fullDiskPath);
+            totalBytesFreed += stats.size || 0;
+            fs.unlinkSync(fullDiskPath);
+            deletedFilesCount++;
+            break;
+          }
         }
       } catch (err) {
         console.error(`Failed to delete disk file ${asg.filePath}:`, err);
       }
+    }
+  }
+
+  // Also clean up any unlinked / orphaned PDF files in server/uploads when purging all records
+  if ((!semester || semester === 'all') && (!collegeId || collegeId === 'all')) {
+    try {
+      if (fs.existsSync(uploadsDir)) {
+        const diskFiles = fs.readdirSync(uploadsDir);
+        for (const file of diskFiles) {
+          if (file.toLowerCase().endsWith('.pdf')) {
+            const fullPath = path.join(uploadsDir, file);
+            try {
+              if (fs.existsSync(fullPath)) {
+                const stats = fs.statSync(fullPath);
+                totalBytesFreed += stats.size || 0;
+                fs.unlinkSync(fullPath);
+                deletedFilesCount++;
+              }
+            } catch (err) {
+              console.error(`Failed to delete orphaned PDF ${file}:`, err);
+            }
+          }
+        }
+      }
+    } catch (dirErr) {
+      console.error('Failed to clean uploads directory:', dirErr);
     }
   }
 

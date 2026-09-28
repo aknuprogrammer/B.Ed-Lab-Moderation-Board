@@ -490,18 +490,35 @@ const Assignments = () => {
     );
   };
 
+  const getSemLevel = (sem) => {
+    if (!sem) return 0;
+    const s = String(sem).trim().toUpperCase();
+    if (s === '1-1' || s === '1' || s === 'I' || s.includes('SEM 1') || s.includes('SEMESTER 1') || s.includes('SEMESTER I')) return 1;
+    if (s === '1-2' || s === '2' || s === 'II' || s.includes('SEM 2') || s.includes('SEMESTER 2') || s.includes('SEMESTER II')) return 2;
+    if (s === '2-1' || s === '3' || s === 'III' || s.includes('SEM 3') || s.includes('SEMESTER 3') || s.includes('SEMESTER III')) return 3;
+    if (s === '2-2' || s === '4' || s === 'IV' || s.includes('SEM 4') || s.includes('SEMESTER 4') || s.includes('SEMESTER IV')) return 4;
+    const num = parseInt(s, 10);
+    return isNaN(num) ? 0 : num;
+  };
+
   const assignedStudentsSet = useMemo(() => {
     const set = new Set();
     const targetMode = mode === 'Backlog' ? 'Supply' : 'Regular';
+    const targetSemLevel = selectedSemester ? getSemLevel(selectedSemester) : null;
+
     assignments.forEach(a => {
       const aStudentId = a.studentId?._id || a.studentId;
       const aMode = a.mode || 'Regular';
+      const aSem = a.subjectId?.semester || a.studentId?.currentSemester;
+
       if (aStudentId && aMode === targetMode) {
-        set.add(aStudentId.toString());
+        if (!targetSemLevel || getSemLevel(aSem) === targetSemLevel) {
+          set.add(aStudentId.toString());
+        }
       }
     });
     return set;
-  }, [assignments, mode]);
+  }, [assignments, mode, selectedSemester]);
 
   const filteredStudents = useMemo(() => {
     if (!studentSearch) return students;

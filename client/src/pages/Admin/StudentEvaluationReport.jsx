@@ -148,7 +148,7 @@ export default function StudentEvaluationReport() {
           setPurging(true);
           setError('');
           setSuccessMessage('');
-          const payload = { resetEvaluators: true, retainBacklogCandidates: true };
+          const payload = { resetEvaluators: true, retainBacklogCandidates: false };
           if (selectedCollege) payload.collegeId = selectedCollege;
           if (selectedSemester) payload.semester = selectedSemester;
           if (selectedStatus) payload.status = selectedStatus;
