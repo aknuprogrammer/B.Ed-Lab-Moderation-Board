@@ -5,11 +5,6 @@ const emailService = require('../emailService');
 const AppError = require('../../utils/AppError');
 const bcrypt = require('bcryptjs');
 
-const getReuploadFilter = async () => {
-  // Removing the date/semester restriction as the user is actively working with 1st semester assignments
-  // that were submitted prior to August 28th.
-  return {};
-};
 
 const getSemLevel = (sem) => {
   if (!sem) return 1;
@@ -357,18 +352,15 @@ exports.assignSubjectsToEvaluator = async (id, { allocations, subjectIds, groupS
 };
 
 exports.getSubjectsWithSubmissions = async (mode = 'Regular') => {
-  const reuploadFilter = await getReuploadFilter();
-
-  const query = {
-    status: { $ne: 'Pending' },
-    isAbsent: { $ne: true }
-  };
-
   const modeClause = mode === 'Supply'
     ? { mode: 'Supply' }
     : { $or: [{ mode: 'Regular' }, { mode: { $exists: false } }, { mode: null }] };
 
-  query.$and = [reuploadFilter, modeClause];
+  const query = {
+    status: { $ne: 'Pending' },
+    isAbsent: { $ne: true },
+    ...modeClause
+  };
 
   const assignments = await Assignment.find(query).select('subjectId groupSubjectName evaluatorId').lean();
 
@@ -431,12 +423,11 @@ exports.getSubjectAllocationStats = async ({ subjectId, groupSubjectName, subjec
     isAbsent: { $ne: true }
   };
 
-  const reuploadFilter = await getReuploadFilter();
   const modeClause = mode === 'Supply'
     ? { mode: 'Supply' }
     : { $or: [{ mode: 'Regular' }, { mode: { $exists: false } }, { mode: null }] };
 
-  const combinedAnd = [reuploadFilter, modeClause];
+  const combinedAnd = [modeClause];
   if (query.$or) {
     combinedAnd.push({ $or: query.$or });
     delete submittedQuery.$or;
@@ -514,11 +505,11 @@ exports.allocateSubjectBulk = async ({ subjectId, groupSubjectName, subjects, ev
   for (const s of parsedSubjects) {
     const query = { evaluatorId: null, status: { $ne: 'Pending' } };
     
-    const reuploadFilter = await getReuploadFilter(); const modeClause = mode === 'Supply'
+    const modeClause = mode === 'Supply'
       ? { mode: 'Supply' }
       : { $or: [{ mode: 'Regular' }, { mode: { $exists: false } }, { mode: null }] };
 
-    query.$and = [reuploadFilter, modeClause];
+    Object.assign(query, modeClause);
     if (s.subjectId) query.subjectId = s.subjectId;
     else if (s.groupSubjectName) query.groupSubjectName = s.groupSubjectName;
     else continue;
@@ -838,7 +829,7 @@ exports.resetEvaluation = async (assignmentId, submissionDeadline) => {
 
   await assignment.save();
 
-  return { message: 'Evaluation reset successfully. Student can now re-upload.' };
+  return { message: 'Evaluation reset successfully. Student can now submit record.' };
 };
 
 exports.bulkResetEvaluation = async (assignmentIds, submissionDeadline) => {
@@ -861,5 +852,5 @@ exports.bulkResetEvaluation = async (assignmentIds, submissionDeadline) => {
     { $set: updateFields }
   );
 
-  return { message: `Successfully reset ${result.modifiedCount} evaluations. Students can now re-upload.` };
+  return { message: `Successfully reset ${result.modifiedCount} evaluations. Students can now submit records.` };
 };

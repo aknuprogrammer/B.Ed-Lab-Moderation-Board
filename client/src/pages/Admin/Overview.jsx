@@ -24,6 +24,8 @@ const Overview = () => {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [selectedSemester, setSelectedSemester] = useState('');
+  const [availableSemesters, setAvailableSemesters] = useState([]);
 
   // Missing Marks Modal State
   const [isMissingMarksModalOpen, setIsMissingMarksModalOpen] = useState(false);
@@ -31,11 +33,11 @@ const Overview = () => {
   const [missingMarksDetails, setMissingMarksDetails] = useState([]);
   const [loadingMissingMarks, setLoadingMissingMarks] = useState(false);
 
-  // Pending Reuploads Modal State
-  const [isPendingReuploadsModalOpen, setIsPendingReuploadsModalOpen] = useState(false);
+  // Pending Submissions Modal State
+  const [isPendingSubmissionsModalOpen, setIsPendingSubmissionsModalOpen] = useState(false);
   const [selectedPendingCollege, setSelectedPendingCollege] = useState(null);
-  const [pendingReuploadsDetails, setPendingReuploadsDetails] = useState([]);
-  const [loadingPendingReuploads, setLoadingPendingReuploads] = useState(false);
+  const [pendingSubmissionsDetails, setPendingSubmissionsDetails] = useState([]);
+  const [loadingPendingSubmissions, setLoadingPendingSubmissions] = useState(false);
 
   // Dropdown UI states
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -53,16 +55,25 @@ const Overview = () => {
     }
   };
 
-  const fetchStats = async (collegeId) => {
+  const fetchStats = async (collegeId, sem) => {
     setLoading(true);
     setError('');
     try {
       const token = localStorage.getItem('token');
-      const url = `${API_BASE_URL}/api/admin/dashboard-stats?collegeId=${collegeId}`;
+      const targetSem = sem !== undefined ? sem : selectedSemester;
+      let url = `${API_BASE_URL}/api/admin/dashboard-stats?collegeId=${collegeId}`;
+      if (targetSem) url += `&semester=${targetSem}`;
+
       const res = await axios.get(url, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setStats(res.data);
+      if (res.data?.availableSemesters) {
+        setAvailableSemesters(res.data.availableSemesters);
+      }
+      if (!selectedSemester && res.data?.currentSemester) {
+        setSelectedSemester(res.data.currentSemester);
+      }
     } catch (err) {
       console.error('Error fetching dashboard stats:', err);
       setError(err.response?.data?.message || 'Failed to load statistics.');
@@ -71,13 +82,19 @@ const Overview = () => {
     }
   };
 
+  const handleSemesterSelect = (sem) => {
+    setSelectedSemester(sem);
+    fetchStats(selectedCollege._id, sem);
+  };
+
   const handleViewMissingMarks = async (college) => {
     setSelectedMissingCollege(college);
     setIsMissingMarksModalOpen(true);
     setLoadingMissingMarks(true);
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.get(`${API_BASE_URL}/api/admin/missing-suggested-marks/${college._id}`, {
+      const semParam = selectedSemester ? `?semester=${selectedSemester}` : '';
+      const res = await axios.get(`${API_BASE_URL}/api/admin/missing-suggested-marks/${college._id}${semParam}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setMissingMarksDetails(res.data || []);
@@ -88,20 +105,21 @@ const Overview = () => {
     }
   };
 
-  const handleViewPendingReuploads = async (college) => {
+  const handleViewPendingSubmissions = async (college) => {
     setSelectedPendingCollege(college);
-    setIsPendingReuploadsModalOpen(true);
-    setLoadingPendingReuploads(true);
+    setIsPendingSubmissionsModalOpen(true);
+    setLoadingPendingSubmissions(true);
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.get(`${API_BASE_URL}/api/admin/pending-reuploads/${college._id}`, {
+      const semParam = selectedSemester ? `?semester=${selectedSemester}` : '';
+      const res = await axios.get(`${API_BASE_URL}/api/admin/pending-submissions/${college._id}${semParam}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setPendingReuploadsDetails(res.data || []);
+      setPendingSubmissionsDetails(res.data || []);
     } catch (err) {
-      console.error('Error fetching pending reuploads details:', err);
+      console.error('Error fetching pending submissions details:', err);
     } finally {
-      setLoadingPendingReuploads(false);
+      setLoadingPendingSubmissions(false);
     }
   };
 
@@ -114,7 +132,7 @@ const Overview = () => {
     setSelectedCollege(college);
     setIsDropdownOpen(false);
     setSearchQuery('');
-    fetchStats(college._id);
+    fetchStats(college._id, selectedSemester);
   };
 
   // Close dropdown on click outside
@@ -148,11 +166,11 @@ const Overview = () => {
   const recordsPendingPct = totalRecords > 0 ? Math.round((totalRecordsPending / totalRecords) * 100) : 0;
   
   const missingSuggestedMarksByCollege = stats?.missingSuggestedMarksByCollege || [];
-  const pendingReuploadsByCollege = stats?.pendingReuploadsByCollege || [];
+  const pendingSubmissionsByCollege = stats?.pendingSubmissionsByCollege || [];
   const subjectWiseCounts = stats?.subjectWiseCounts || [];
 
   const totalMissingSuggestedMarks = missingSuggestedMarksByCollege.reduce((sum, col) => sum + (col.missingCount || 0), 0);
-  const totalPendingReuploads = pendingReuploadsByCollege.reduce((sum, col) => sum + (col.pendingCount || 0), 0);
+  const totalPendingSubmissions = pendingSubmissionsByCollege.reduce((sum, col) => sum + (col.pendingCount || 0), 0);
 
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-8">
@@ -178,12 +196,27 @@ const Overview = () => {
         </div>
       </div>
 
-      {/* College Dropdown Filter */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white border border-slate-200 p-4 rounded-lg shadow-sm">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-slate-700">Select College Scope:</span>
+      {/* Scope Filters (Semester & College) */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white border border-slate-200 p-4 rounded-lg shadow-sm">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-sm font-semibold text-slate-700">Semester Scope:</span>
+          <select
+            value={selectedSemester}
+            onChange={(e) => handleSemesterSelect(e.target.value)}
+            className="border border-slate-300 rounded-md px-3 py-2 text-sm bg-white text-slate-800 outline-none focus:ring-2 focus:ring-teal-500 font-semibold cursor-pointer shadow-sm min-w-[170px]"
+          >
+            {availableSemesters.map((sem) => (
+              <option key={sem} value={sem}>
+                Semester {sem} {String(sem) === String(stats?.currentSemester) ? '(Active)' : ''}
+              </option>
+            ))}
+            <option value="all">All Semesters (Consolidated)</option>
+          </select>
         </div>
-        <div className="relative w-full sm:w-96" onClick={(e) => e.stopPropagation()}>
+
+        <div className="flex items-center gap-3 w-full md:w-auto">
+          <span className="text-sm font-semibold text-slate-700 whitespace-nowrap">College Scope:</span>
+          <div className="relative w-full sm:w-80" onClick={(e) => e.stopPropagation()}>
           <button
             type="button"
             onClick={() => setIsDropdownOpen(!isDropdownOpen)}
@@ -240,6 +273,7 @@ const Overview = () => {
               </div>
             </div>
           )}
+          </div>
         </div>
       </div>
 
@@ -326,7 +360,7 @@ const Overview = () => {
               <CheckCircle className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Re-uploaded / Submitted</p>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Submitted Records</p>
               <p className="text-2xl font-bold text-slate-900 mt-1">{loading ? '-' : totalRecordsSubmitted}</p>
             </div>
           </div>
@@ -487,7 +521,7 @@ const Overview = () => {
                   <div className="flex items-center justify-between py-2.5">
                     <div className="flex items-center gap-2">
                       <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
-                      <span className="font-semibold text-slate-600">Re-uploaded / Submitted</span>
+                      <span className="font-semibold text-slate-600">Submitted Records</span>
                     </div>
                     <div className="font-bold text-slate-900 text-right">
                       {loading ? '-' : `${totalRecordsSubmitted} (${recordsSubmittedPct}%)`}
@@ -545,8 +579,14 @@ const Overview = () => {
                   </tr>
                 ) : missingSuggestedMarksByCollege.length === 0 ? (
                   <tr>
-                    <td colSpan="5" className="px-6 py-8 text-center font-medium text-emerald-600 flex items-center justify-center gap-2">
-                      <CheckCircle className="h-5 w-5" /> All submitted records have suggested marks!
+                    <td colSpan="5" className="px-6 py-8 text-center font-medium text-slate-500">
+                      {totalRecords === 0 ? (
+                        <span>No records assigned for this semester yet.</span>
+                      ) : (
+                        <span className="text-emerald-600 flex items-center justify-center gap-2">
+                          <CheckCircle className="h-5 w-5" /> All submitted records have suggested marks!
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ) : (
@@ -578,16 +618,16 @@ const Overview = () => {
         </div>
       </div>
 
-      {/* Pending Reuploads Section */}
+      {/* Pending Submissions Section */}
       <div className="space-y-4 mt-8">
         <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500">
-          Pending Re-uploads (Action Required by Principals) - {pendingReuploadsByCollege.length} Colleges ({totalPendingReuploads} Records)
+          Pending Submissions (Action Required by Principals) - {pendingSubmissionsByCollege.length} Colleges ({totalPendingSubmissions} Records)
         </h2>
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
           <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center gap-3">
             <Clock className="h-5 w-5 text-indigo-500" />
             <p className="text-sm font-medium text-slate-700">
-              The following colleges have students who have not yet re-uploaded their required records (or have missing records).
+              The following colleges have students who have not yet submitted their required records.
             </p>
           </div>
           
@@ -598,7 +638,7 @@ const Overview = () => {
                   <th className="px-6 py-3 w-16 text-center">S.No</th>
                   <th className="px-6 py-3">College Code</th>
                   <th className="px-6 py-3">College Name</th>
-                  <th className="px-6 py-3 text-center">Pending Re-uploads</th>
+                  <th className="px-6 py-3 text-center">Pending Submissions</th>
                   <th className="px-6 py-3 text-right">Actions</th>
                 </tr>
               </thead>
@@ -607,14 +647,20 @@ const Overview = () => {
                   <tr>
                     <td colSpan="5" className="px-6 py-8 text-center text-slate-400">Loading data...</td>
                   </tr>
-                ) : pendingReuploadsByCollege.length === 0 ? (
+                ) : pendingSubmissionsByCollege.length === 0 ? (
                   <tr>
-                    <td colSpan="5" className="px-6 py-8 text-center font-medium text-emerald-600 flex items-center justify-center gap-2">
-                      <CheckCircle className="h-5 w-5" /> All students have re-uploaded their records!
+                    <td colSpan="5" className="px-6 py-8 text-center font-medium text-slate-500">
+                      {totalRecords === 0 ? (
+                        <span>No records assigned for this semester yet.</span>
+                      ) : (
+                        <span className="text-emerald-600 flex items-center justify-center gap-2">
+                          <CheckCircle className="h-5 w-5" /> All students have submitted their records!
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ) : (
-                  pendingReuploadsByCollege.map((college, idx) => (
+                  pendingSubmissionsByCollege.map((college, idx) => (
                     <tr key={idx} className="hover:bg-slate-50/50">
                       <td className="px-6 py-3 text-center text-slate-500 font-medium">{idx + 1}</td>
                       <td className="px-6 py-3 font-semibold text-slate-900">{college.collegeCode}</td>
@@ -626,7 +672,7 @@ const Overview = () => {
                       </td>
                       <td className="px-6 py-3 text-right">
                         <button
-                          onClick={() => handleViewPendingReuploads(college)}
+                          onClick={() => handleViewPendingSubmissions(college)}
                           className="p-1.5 bg-teal-50 text-teal-600 hover:bg-teal-100 rounded-md transition-colors"
                           title="View Details"
                         >
@@ -644,7 +690,7 @@ const Overview = () => {
       {/* Subject-wise Uploaded Records Section */}
       <div className="space-y-4 mt-8">
         <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500">
-          Subject-wise Uploaded Records (Submitted After Aug 28, 2026)
+          Subject-wise Uploaded Records
         </h2>
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
           <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center gap-3">
@@ -777,20 +823,20 @@ const Overview = () => {
         </div>
       )}
 
-      {/* Pending Reuploads Modal */}
-      {isPendingReuploadsModalOpen && (
+      {/* Pending Submissions Modal */}
+      {isPendingSubmissionsModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
             <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
               <div>
                 <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
                   <Clock className="h-5 w-5 text-indigo-500" />
-                  Pending Re-uploads - {selectedPendingCollege?.collegeName}
+                  Pending Submissions - {selectedPendingCollege?.collegeName}
                 </h3>
                 <p className="text-xs text-slate-500 mt-1">College Code: {selectedPendingCollege?.collegeCode}</p>
               </div>
               <button 
-                onClick={() => setIsPendingReuploadsModalOpen(false)}
+                onClick={() => setIsPendingSubmissionsModalOpen(false)}
                 className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-md transition-colors"
               >
                 <X className="h-5 w-5" />
@@ -798,14 +844,14 @@ const Overview = () => {
             </div>
             
             <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
-              {loadingPendingReuploads ? (
+              {loadingPendingSubmissions ? (
                 <div className="flex flex-col items-center justify-center py-12">
                   <RefreshCw className="h-8 w-8 text-teal-600 animate-spin mb-4" />
                   <p className="text-slate-500 font-medium text-sm">Loading details...</p>
                 </div>
-              ) : pendingReuploadsDetails.length === 0 ? (
+              ) : pendingSubmissionsDetails.length === 0 ? (
                 <div className="text-center py-12 text-slate-500 font-medium">
-                  No pending re-uploads found for this college.
+                  No pending submissions found for this college.
                 </div>
               ) : (
                 <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm">
@@ -820,17 +866,15 @@ const Overview = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 text-slate-700">
-                      {pendingReuploadsDetails.map((detail, idx) => (
+                      {pendingSubmissionsDetails.map((detail, idx) => (
                         <tr key={idx} className="hover:bg-slate-50">
                           <td className="px-4 py-3 text-center text-slate-500 font-medium">{detail.sNo}</td>
                           <td className="px-4 py-3 text-slate-600">{detail.regdNo}</td>
                           <td className="px-4 py-3 font-semibold text-slate-900">{detail.name}</td>
                           <td className="px-4 py-3">{detail.subject}</td>
                           <td className="px-4 py-3">
-                            <span className={`inline-flex px-2 py-0.5 rounded text-xs font-semibold ${
-                              detail.status === 'Pending' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800'
-                            }`}>
-                              {detail.status === 'Pending' ? 'Missing' : 'Not Re-uploaded'}
+                            <span className="inline-flex px-2 py-0.5 rounded text-xs font-semibold bg-amber-100 text-amber-800">
+                              {detail.status === 'Pending' ? 'Missing / Pending' : detail.status}
                             </span>
                           </td>
                         </tr>
@@ -843,7 +887,7 @@ const Overview = () => {
             
             <div className="p-4 border-t border-slate-200 bg-white flex justify-end">
               <button 
-                onClick={() => setIsPendingReuploadsModalOpen(false)}
+                onClick={() => setIsPendingSubmissionsModalOpen(false)}
                 className="px-4 py-2 bg-slate-100 text-slate-700 hover:bg-slate-200 font-semibold rounded-md transition-colors"
               >
                 Close

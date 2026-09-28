@@ -78,6 +78,20 @@ const Pagination = ({ total, page, onPage, pageSize = 10 }) => {
   );
 };
 
+const formatDateTime = (dateStr) => {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return null;
+  return d.toLocaleString('en-GB', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  });
+};
+
 const isNoMarks = (score) => score === 0 || score === null || score === undefined || score === '';
 
 const EvaluatedRecords = () => {
@@ -282,6 +296,9 @@ const EvaluatedRecords = () => {
       const totalSubjectsCount = paper.subjectIds?.length || 0;
       let hasFailedSubject = false;
       let absentOrMissingCount = 0;
+      const evaluatorNames = new Set();
+      let latestSubmittedAt = null;
+      let latestEvaluatedAt = null;
 
       (paper.subjectIds || []).forEach(sub => {
         const subId = sub._id || sub;
@@ -291,6 +308,24 @@ const EvaluatedRecords = () => {
           const fallbackAssignment = fallbackMap.get(subId.toString());
           if (fallbackAssignment) {
             assignment = fallbackAssignment;
+          }
+        }
+
+        if (assignment) {
+          if (assignment.evaluatorId?.fullName) {
+            evaluatorNames.add(assignment.evaluatorId.fullName);
+          }
+          if (assignment.submittedAt) {
+            const subDate = new Date(assignment.submittedAt);
+            if (!latestSubmittedAt || subDate > new Date(latestSubmittedAt)) {
+              latestSubmittedAt = assignment.submittedAt;
+            }
+          }
+          if (assignment.status === 'Evaluated' && assignment.updatedAt) {
+            const updDate = new Date(assignment.updatedAt);
+            if (!latestEvaluatedAt || updDate > new Date(latestEvaluatedAt)) {
+              latestEvaluatedAt = assignment.updatedAt;
+            }
           }
         }
 
@@ -330,6 +365,9 @@ const EvaluatedRecords = () => {
         degree: student.degree,
         paperName: paper.paperName || paper.paperCode || "Paper",
         paperCode: paper.paperCode,
+        evaluators: Array.from(evaluatorNames).join(', ') || 'Unassigned',
+        latestSubmittedAt,
+        latestEvaluatedAt,
         obtainedScore: (absentOrMissingCount === totalSubjectsCount) ? 'ABS' : obtainedScore,
         maxMarks: paperMaxMarks,
         passMarks: paper.passMarks || 0,
@@ -662,6 +700,9 @@ const EvaluatedRecords = () => {
                     <th className="px-4 py-3 text-left whitespace-nowrap">Student Name</th>
                     <th className="px-4 py-3 text-left whitespace-nowrap">Roll No.</th>
                     <th className="px-4 py-3 text-left whitespace-nowrap min-w-[12rem]">Document / Subject</th>
+                    <th className="px-4 py-3 text-left whitespace-nowrap">Evaluator</th>
+                    <th className="px-4 py-3 text-left whitespace-nowrap">Uploaded At</th>
+                    <th className="px-4 py-3 text-left whitespace-nowrap">Evaluated At</th>
                     <th className="px-4 py-3 text-center whitespace-nowrap">Max Marks</th>
                     <th className="px-4 py-3 text-center whitespace-nowrap">Pass Marks</th>
                     <th className="px-4 py-3 text-left whitespace-nowrap">Status</th>
@@ -687,6 +728,23 @@ const EvaluatedRecords = () => {
                       <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
                         <p className="font-medium text-slate-900">{record.groupSubjectName || record.subjectId?.subName}</p>
                         <p className="text-xs text-slate-500">{record.subjectId?.subCode}</p>
+                      </td>
+                      <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
+                        <span className="font-medium text-slate-900">{record.evaluatorId?.fullName || <span className="text-slate-400 italic text-xs">Unassigned</span>}</span>
+                      </td>
+                      <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
+                        {record.submittedAt ? (
+                          <span className="font-medium text-slate-800 text-xs">{formatDateTime(record.submittedAt)}</span>
+                        ) : (
+                          <span className="text-slate-400 italic text-xs">Pending</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
+                        {record.status === 'Evaluated' && record.updatedAt ? (
+                          <span className="font-medium text-slate-800 text-xs">{formatDateTime(record.updatedAt)}</span>
+                        ) : (
+                          <span className="text-slate-400 italic text-xs">—</span>
+                        )}
                       </td>
                       <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm text-center font-semibold text-slate-800">
                         {record.maxMarks ?? record.subjectId?.maxMarks ?? '—'}
@@ -753,7 +811,7 @@ const EvaluatedRecords = () => {
                   ))}
                   {regularRecords.length === 0 && (
                     <tr>
-                      <td colSpan="8" className="px-6 py-8 text-center text-slate-500">No regular subject evaluations found.</td>
+                      <td colSpan="12" className="px-6 py-8 text-center text-slate-500">No regular subject evaluations found.</td>
                     </tr>
                   )}
                 </tbody>
@@ -786,6 +844,9 @@ const EvaluatedRecords = () => {
                     <th className="px-4 py-3 text-left whitespace-nowrap">Student Name</th>
                     <th className="px-4 py-3 text-left whitespace-nowrap">Roll No.</th>
                     <th className="px-4 py-3 text-left whitespace-nowrap min-w-[12rem]">Document / Subject</th>
+                    <th className="px-4 py-3 text-left whitespace-nowrap">Evaluator</th>
+                    <th className="px-4 py-3 text-left whitespace-nowrap">Uploaded At</th>
+                    <th className="px-4 py-3 text-left whitespace-nowrap">Evaluated At</th>
                     <th className="px-4 py-3 text-center whitespace-nowrap">Max Marks</th>
                     <th className="px-4 py-3 text-center whitespace-nowrap">Pass Marks</th>
                     <th className="px-4 py-3 text-left whitespace-nowrap">Status</th>
@@ -811,6 +872,23 @@ const EvaluatedRecords = () => {
                       <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
                         <p className="font-medium text-slate-900">{record.groupSubjectName || record.subjectId?.subName}</p>
                         <p className="text-xs text-slate-500">{record.subjectId?.subCode}</p>
+                      </td>
+                      <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
+                        <span className="font-medium text-slate-900">{record.evaluatorId?.fullName || <span className="text-slate-400 italic text-xs">Unassigned</span>}</span>
+                      </td>
+                      <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
+                        {record.submittedAt ? (
+                          <span className="font-medium text-slate-800 text-xs">{formatDateTime(record.submittedAt)}</span>
+                        ) : (
+                          <span className="text-slate-400 italic text-xs">Pending</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
+                        {record.status === 'Evaluated' && record.updatedAt ? (
+                          <span className="font-medium text-slate-800 text-xs">{formatDateTime(record.updatedAt)}</span>
+                        ) : (
+                          <span className="text-slate-400 italic text-xs">—</span>
+                        )}
                       </td>
                       <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm text-center font-semibold text-slate-800">
                         {record.maxMarks ?? record.subjectId?.maxMarks ?? '—'}
@@ -877,7 +955,7 @@ const EvaluatedRecords = () => {
                   ))}
                   {supplyRecords.length === 0 && (
                     <tr>
-                      <td colSpan="8" className="px-6 py-8 text-center text-slate-500">No supply subject evaluations found.</td>
+                      <td colSpan="12" className="px-6 py-8 text-center text-slate-500">No supply subject evaluations found.</td>
                     </tr>
                   )}
                 </tbody>
@@ -903,6 +981,9 @@ const EvaluatedRecords = () => {
                     <th className="px-4 py-3 text-left whitespace-nowrap">Roll No.</th>
                     <th className="px-4 py-3 text-left whitespace-nowrap">Semester</th>
                     <th className="px-4 py-3 text-left whitespace-nowrap">Paper Name</th>
+                    <th className="px-4 py-3 text-left whitespace-nowrap">Evaluator(s)</th>
+                    <th className="px-4 py-3 text-left whitespace-nowrap">Uploaded At</th>
+                    <th className="px-4 py-3 text-left whitespace-nowrap">Evaluated At</th>
                     <th className="px-4 py-3 text-center whitespace-nowrap min-w-[8rem]">Final Marks</th>
                     <th className="px-4 py-3 text-center whitespace-nowrap">BOS Status</th>
                   </tr>
@@ -918,6 +999,23 @@ const EvaluatedRecords = () => {
                         <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
                           <p className="font-semibold text-slate-800">{row.paperName}</p>
                           <p className="text-xs text-slate-400">{row.paperCode}</p>
+                        </td>
+                        <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
+                          <span className="font-medium text-slate-900 text-xs">{row.evaluators}</span>
+                        </td>
+                        <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
+                          {row.latestSubmittedAt ? (
+                            <span className="font-medium text-slate-800 text-xs">{formatDateTime(row.latestSubmittedAt)}</span>
+                          ) : (
+                            <span className="text-slate-400 italic text-xs">Pending</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
+                          {row.latestEvaluatedAt ? (
+                            <span className="font-medium text-slate-800 text-xs">{formatDateTime(row.latestEvaluatedAt)}</span>
+                          ) : (
+                            <span className="text-slate-400 italic text-xs">—</span>
+                          )}
                         </td>
                         <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm text-center">
                           {row.obtainedScore !== null ? (
@@ -945,7 +1043,7 @@ const EvaluatedRecords = () => {
                   })}
                   {filteredRegularPapers.length === 0 && (
                     <tr>
-                      <td colSpan="6" className="px-6 py-8 text-center text-slate-500 text-sm">No regular paper grades found.</td>
+                      <td colSpan="9" className="px-6 py-8 text-center text-slate-500 text-sm">No regular paper grades found.</td>
                     </tr>
                   )}
                 </tbody>
@@ -970,6 +1068,9 @@ const EvaluatedRecords = () => {
                     <th className="px-4 py-3 text-left whitespace-nowrap">Roll No.</th>
                     <th className="px-4 py-3 text-left whitespace-nowrap">Semester</th>
                     <th className="px-4 py-3 text-left whitespace-nowrap">Paper Name</th>
+                    <th className="px-4 py-3 text-left whitespace-nowrap">Evaluator(s)</th>
+                    <th className="px-4 py-3 text-left whitespace-nowrap">Uploaded At</th>
+                    <th className="px-4 py-3 text-left whitespace-nowrap">Evaluated At</th>
                     <th className="px-4 py-3 text-center whitespace-nowrap min-w-[8rem]">Consolidated Score</th>
                     <th className="px-4 py-3 text-center whitespace-nowrap">BOS Status</th>
                   </tr>
@@ -985,6 +1086,23 @@ const EvaluatedRecords = () => {
                         <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
                           <p className="font-semibold text-slate-800">{row.paperName}</p>
                           <p className="text-xs text-slate-400">{row.paperCode}</p>
+                        </td>
+                        <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
+                          <span className="font-medium text-slate-900 text-xs">{row.evaluators}</span>
+                        </td>
+                        <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
+                          {row.latestSubmittedAt ? (
+                            <span className="font-medium text-slate-800 text-xs">{formatDateTime(row.latestSubmittedAt)}</span>
+                          ) : (
+                            <span className="text-slate-400 italic text-xs">Pending</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
+                          {row.latestEvaluatedAt ? (
+                            <span className="font-medium text-slate-800 text-xs">{formatDateTime(row.latestEvaluatedAt)}</span>
+                          ) : (
+                            <span className="text-slate-400 italic text-xs">—</span>
+                          )}
                         </td>
                         <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm text-center">
                           {row.obtainedScore !== null ? (
@@ -1012,7 +1130,7 @@ const EvaluatedRecords = () => {
                   })}
                   {filteredSupplyPapers.length === 0 && (
                     <tr>
-                      <td colSpan="6" className="px-6 py-8 text-center text-slate-500 text-sm">No supply (backlog) paper grades found.</td>
+                      <td colSpan="9" className="px-6 py-8 text-center text-slate-500 text-sm">No supply (backlog) paper grades found.</td>
                     </tr>
                   )}
                 </tbody>
@@ -1038,7 +1156,7 @@ const EvaluatedRecords = () => {
               <p className="text-sm text-slate-600 mb-4">
                 Are you sure you want to reset {resetModalData.type === 'bulk' ? `these ${resetModalData.payload.length} evaluations` : 'this evaluation'}?
                 <br /><br />
-                Please select a new submission deadline for the student(s) to re-upload their records.
+                Please select a new submission deadline for the student(s) to submit their records.
               </p>
               <div className="mb-4">
                 <label className="block text-sm font-medium text-slate-700 mb-1">New Submission Deadline <span className="text-red-500">*</span></label>

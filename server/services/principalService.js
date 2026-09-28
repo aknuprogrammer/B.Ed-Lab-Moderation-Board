@@ -94,7 +94,7 @@ exports.getPrincipalDashboardStats = async (collegeId, { courseId, semester }) =
       };
     }
 
-    if (asg.status === 'Submitted' || asg.status === 'Re-Submitted') {
+    if (asg.status === 'Submitted') {
       subjectProgressMap[label].submitted++;
       totalSubmitted++;
     } else if (asg.status === 'Evaluated') {
@@ -220,22 +220,16 @@ exports.getCollegeRecords = async (collegeId) => {
 
   const assignments = await Assignment.find({
     studentId: { $in: studentIds },
-    status: { $in: ['Submitted', 'Re-Submitted', 'Evaluated'] }
+    status: { $in: ['Submitted', 'Evaluated'] }
   })
     .populate('studentId', 'fullName regdNo currentSemester')
     .populate('subjectId', 'subCode subName maxMarks semester')
     .sort({ submittedAt: -1 })
     .lean();
 
-  const cutoffDate = new Date('2026-08-28T00:00:00Z');
   const filteredAssignments = assignments.filter(asg => {
     if (!asg.studentId || !asg.subjectId) return false;
     if (asg.mode !== 'Supply' && String(asg.subjectId.semester) !== String(asg.studentId.currentSemester)) return false;
-
-    const submissionDate = new Date(asg.submittedAt);
-    if (submissionDate < cutoffDate) {
-      return false;
-    }
 
     return true;
   });

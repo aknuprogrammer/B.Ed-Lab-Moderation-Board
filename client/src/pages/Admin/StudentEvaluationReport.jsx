@@ -119,36 +119,23 @@ export default function StudentEvaluationReport() {
       if (selectedCourse) params.append('courseId', selectedCourse);
       if (selectedSemester) params.append('semester', selectedSemester);
       if (selectedStatus) params.append('status', selectedStatus);
+      if (token) params.append('token', token);
 
-      const response = await axios.get(`${API}/download-bulk-zip?${params.toString()}`, {
-        headers: { Authorization: `Bearer ${token}` },
-        responseType: 'blob'
-      });
-
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const downloadUrl = `${API}/download-bulk-zip?${params.toString()}`;
+      
+      // Native browser download avoids Axios in-memory Blob heap limits for large bulk archives
       const link = document.createElement('a');
-      link.href = url;
+      link.href = downloadUrl;
       link.setAttribute('download', `Student_Records_Bulk_${Date.now()}.zip`);
       document.body.appendChild(link);
       link.click();
       link.remove();
-      window.URL.revokeObjectURL(url);
       setHasDownloadedRecords(true);
     } catch (err) {
       console.error('Error downloading bulk zip:', err);
-      let errMsg = 'Failed to download bulk ZIP archive.';
-      if (err.response && err.response.data && err.response.data instanceof Blob) {
-        try {
-          const text = await err.response.data.text();
-          const parsed = JSON.parse(text);
-          if (parsed.message) errMsg = parsed.message;
-        } catch (e) {}
-      } else if (err.response?.data?.message) {
-        errMsg = err.response.data.message;
-      }
-      setError(errMsg);
+      setError('Failed to initiate bulk ZIP download.');
     } finally {
-      setDownloadingZip(false);
+      setTimeout(() => setDownloadingZip(false), 3000);
     }
   };
 
@@ -161,7 +148,7 @@ export default function StudentEvaluationReport() {
           setPurging(true);
           setError('');
           setSuccessMessage('');
-          const payload = {};
+          const payload = { resetEvaluators: true, retainBacklogCandidates: true };
           if (selectedCollege) payload.collegeId = selectedCollege;
           if (selectedSemester) payload.semester = selectedSemester;
           if (selectedStatus) payload.status = selectedStatus;
@@ -285,17 +272,13 @@ export default function StudentEvaluationReport() {
           </button>
           <button
             onClick={handlePurgeRecords}
-            disabled={purging || !hasDownloadedRecords || filteredReport.length === 0}
+            disabled={purging || filteredReport.length === 0}
             className={`flex items-center justify-center gap-1.5 px-3 py-2 text-white rounded-lg text-xs sm:text-sm font-semibold transition-colors shadow-xs whitespace-nowrap ${
-              hasDownloadedRecords && !purging && filteredReport.length > 0
+              !purging && filteredReport.length > 0
                 ? 'bg-rose-600 hover:bg-rose-700 cursor-pointer'
                 : 'bg-slate-300 text-slate-500 cursor-not-allowed opacity-60'
             }`}
-            title={
-              !hasDownloadedRecords 
-                ? 'Download Bulk Records (ZIP) first to enable record deletion' 
-                : 'Permanently delete matching records and server disk PDF files to reclaim storage space'
-            }
+            title="Permanently delete matching records and server disk PDF files to reclaim storage space"
           >
             {purging ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
             {purging ? 'Deleting...' : 'Delete Records'}
@@ -554,7 +537,7 @@ export default function StudentEvaluationReport() {
         onClose={() => setConfirmPurgeModal(prev => ({ ...prev, isOpen: false }))}
         onConfirm={confirmPurgeModal.onConfirm}
         title="Permanently Purge & Delete Records?"
-        message={`Are you sure you want to PERMANENTLY delete the matching records and remove their uploaded PDF files from server disk storage? This will reclaim server disk space but CANNOT BE UNDONE.`}
+        message={`Are you sure you want to permanently delete all matching records and remove their uploaded PDF files from server disk storage? This will completely clear the records and reclaim database & disk storage space for the upcoming semester. This action cannot be undone.`}
         variant="danger"
         confirmText="Yes, Delete & Reclaim Storage"
         cancelText="Cancel"

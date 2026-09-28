@@ -126,141 +126,18 @@ exports.sendEvaluatorAllocationEmail = async ({ to, evaluatorName, password, sub
 };
 
 /**
- * Send Student Submission Deadline Reminder Email
+ * Student/Principal/Evaluator reminder emails disabled to conserve ZeptoMail credits
  */
-exports.sendStudentReminderEmail = async ({ to, studentName, subjectName, deadline }) => {
-  try {
-    const formattedDeadline = new Date(deadline).toLocaleDateString('en-GB', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric'
-    });
-
-    const htmlContent = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
-        <h2 style="color: #b45309; border-bottom: 2px solid #b45309; padding-bottom: 10px; margin-top: 0;">Submission Deadline Reminder</h2>
-        <p>Dear <strong>${studentName}</strong>,</p>
-        <p>This is a reminder that you have not yet submitted your digital lab record for the following subject:</p>
-        
-        <div style="background-color: #fffbeb; border-left: 4px solid #d97706; padding: 15px; margin: 20px 0; border-radius: 4px;">
-          <p style="margin: 5px 0;"><strong>Subject:</strong> ${subjectName}</p>
-          <p style="margin: 5px 0; color: #b45309; font-weight: bold;"><strong>Deadline:</strong> ${formattedDeadline}</p>
-        </div>
-
-        <p>Please log in to the student portal and submit your record before the deadline to avoid any evaluation delay or penalty.</p>
-        
-        <div style="text-align: center; margin: 25px 0;">
-          <a href="${process.env.SITE_URL || process.env.FRONTEND_URL || 'http://localhost:5173'}/login" style="background-color: #d97706; color: white; padding: 12px 25px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block;">Upload Lab Record Now</a>
-        </div>
-
-        <p style="font-size: 12px; color: #64748b; margin-top: 40px; border-top: 1px solid #e2e8f0; padding-top: 15px;">
-          This is an automated notification system. For any queries, please reach out to your college practical coordinator.
-        </p>
-      </div>
-    `;
-
-    const mailOptions = {
-      from: `"AKNU Digitization Portal" <${SMTP_FROM}>`,
-      to,
-      subject: `URGENT: Lab Record Submission Deadline Reminder - ${subjectName}`,
-      html: htmlContent,
-      text: convertHtmlToText(htmlContent).replace(/^\s+|\s+$/gm, '')
-    };
-
-    const info = await transporter.sendMail(mailOptions);
-    console.log(`Reminder email sent to student ${to}`);
-    return info;
-  } catch (error) {
-    console.error('Failed to send student reminder email:', error);
-  }
+exports.sendStudentReminderEmail = async () => {
+  return { skipped: true, reason: 'Disabled to conserve ZeptoMail quota' };
 };
 
-/**
- * Send Principal Consolidated Unsubmitted Students Reminder Email
- */
-exports.sendPrincipalReminderEmail = async ({ to, principalName, collegeName, unsubmittedRegdNos }) => {
-  try {
-    const listHtml = unsubmittedRegdNos.map(reg => `<li style="margin: 4px 0; font-family: monospace;">${reg}</li>`).join('');
-
-    const htmlContent = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
-        <h2 style="color: #be123c; border-bottom: 2px solid #be123c; padding-bottom: 10px; margin-top: 0;">Unsubmitted Lab Records Notification</h2>
-        <p>Dear Principal <strong>${principalName}</strong>,</p>
-        <p>This is to inform you that the following student(s) from <strong>${collegeName}</strong> have not yet submitted their lab records for upcoming deadlines (today/tomorrow):</p>
-        
-        <div style="background-color: #fff1f2; border-left: 4px solid #e11d48; padding: 15px; margin: 20px 0; border-radius: 4px;">
-          <h4 style="margin-top: 0; color: #be123c;">Pending Registration Numbers (${unsubmittedRegdNos.length}):</h4>
-          <ul style="padding-left: 20px; margin-bottom: 0;">
-            ${listHtml}
-          </ul>
-        </div>
-
-        <p>Please advise your college department heads to instruct these students to complete their uploads immediately.</p>
-        
-        <p style="font-size: 12px; color: #64748b; margin-top: 40px; border-top: 1px solid #e2e8f0; padding-top: 15px;">
-          This is an administrative update. Please do not reply.
-        </p>
-      </div>
-    `;
-
-    const mailOptions = {
-      from: `"AKNU Digitization Portal" <${SMTP_FROM}>`,
-      to,
-      subject: `ALERT: Unsubmitted Student Records - ${collegeName}`,
-      html: htmlContent,
-      text: convertHtmlToText(htmlContent).replace(/^\s+|\s+$/gm, '')
-    };
-
-    const info = await transporter.sendMail(mailOptions);
-    console.log(`Reminder email sent to Principal ${to}`);
-    return info;
-  } catch (error) {
-    console.error('Failed to send principal reminder email:', error);
-  }
+exports.sendPrincipalReminderEmail = async () => {
+  return { skipped: true, reason: 'Disabled to conserve ZeptoMail quota' };
 };
 
-/**
- * Send Evaluator Unsubmitted Assignments Reminder Email
- */
-exports.sendEvaluatorReminderEmail = async ({ to, evaluatorName, unsubmittedRegdNos }) => {
-  try {
-    const listHtml = unsubmittedRegdNos.map(reg => `<li style="margin: 4px 0; font-family: monospace;">${reg}</li>`).join('');
-
-    const htmlContent = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
-        <h2 style="color: #0369a1; border-bottom: 2px solid #0369a1; padding-bottom: 10px; margin-top: 0;">Assigned Students Pending Submission</h2>
-        <p>Dear <strong>${evaluatorName}</strong>,</p>
-        <p>This is to notify you that the following student(s) allocated to your subjects have not yet submitted their lab records for upcoming deadlines:</p>
-        
-        <div style="background-color: #f0f9ff; border-left: 4px solid #0284c7; padding: 15px; margin: 20px 0; border-radius: 4px;">
-          <h4 style="margin-top: 0; color: #0369a1;">Unsubmitted Registration Numbers (${unsubmittedRegdNos.length}):</h4>
-          <ul style="padding-left: 20px; margin-bottom: 0;">
-            ${listHtml}
-          </ul>
-        </div>
-
-        <p>These records will be available in your portal for valuation immediately upon student submission.</p>
-        
-        <p style="font-size: 12px; color: #64748b; margin-top: 40px; border-top: 1px solid #e2e8f0; padding-top: 15px;">
-          This is an automated status update.
-        </p>
-      </div>
-    `;
-
-    const mailOptions = {
-      from: `"AKNU Digitization Portal" <${SMTP_FROM}>`,
-      to,
-      subject: `Allocation Status: Pending Student Submissions`,
-      html: htmlContent,
-      text: convertHtmlToText(htmlContent).replace(/^\s+|\s+$/gm, '')
-    };
-
-    const info = await transporter.sendMail(mailOptions);
-    console.log(`Reminder email sent to Evaluator ${to}`);
-    return info;
-  } catch (error) {
-    console.error('Failed to send evaluator reminder email:', error);
-  }
+exports.sendEvaluatorReminderEmail = async () => {
+  return { skipped: true, reason: 'Disabled to conserve ZeptoMail quota' };
 };
 
 /**
@@ -470,146 +347,18 @@ exports.sendPrincipalOnboardingEmail = async ({ to, principalName, collegeName }
 };
 
 /**
- * Send Student Deadline Reminder Email
+ * Deadline reminder emails disabled to conserve ZeptoMail credits
  */
-exports.sendStudentDeadlineReminderEmail = async ({ to, studentName, daysLeft }) => {
-  try {
-    const siteUrl = process.env.SITE_URL || process.env.FRONTEND_URL || 'http://localhost:5173';
-    const urgency = daysLeft === 0 ? 'TODAY' : 'TOMORROW';
-    
-    const htmlContent = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
-        <h2 style="color: #b91c1c; border-bottom: 2px solid #b91c1c; padding-bottom: 10px; margin-top: 0;">Urgent: Record Submission Deadline</h2>
-        <p>Dear <strong>${studentName}</strong>,</p>
-        <p>This is a reminder that the deadline to upload your assigned practical records is <strong>${urgency}</strong>.</p>
-        
-        <div style="background-color: #fef2f2; border-left: 4px solid #dc2626; padding: 15px; margin: 20px 0; border-radius: 4px;">
-          <h4 style="margin-top: 0; color: #991b1b; text-transform: uppercase; font-size: 13px; letter-spacing: 0.5px;">Action Required</h4>
-          <p style="margin: 5px 0; font-size: 13px; color: #475569;">Please submit the records before the given deadline to get the marks otherwise the subject considered as fail.</p>
-        </div>
-
-        <div style="text-align: center; margin: 30px 0;">
-          <a href="${siteUrl}/login" style="background-color: #0f766e; color: white; padding: 12px 25px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">Log In to Portal</a>
-        </div>
-      </div>
-    `;
-
-    const mailOptions = {
-      from: `"AKNU Digitization Portal" <${SMTP_FROM}>`,
-      to,
-      subject: `Action Required: Record Submission Deadline is ${urgency}`,
-      html: htmlContent,
-      text: convertHtmlToText(htmlContent).replace(/^\s+|\s+$/gm, '')
-    };
-
-    const info = await transporter.sendMail(mailOptions);
-    console.log(`Student reminder email sent to ${to}`);
-    return info;
-  } catch (error) {
-    console.error('Failed to send student reminder email:', error);
-  }
+exports.sendStudentDeadlineReminderEmail = async () => {
+  return { skipped: true, reason: 'Disabled to conserve ZeptoMail quota' };
 };
 
-/**
- * Send Principal Deadline Reminder Email
- */
-exports.sendPrincipalDeadlineReminderEmail = async ({ to, principalName, daysLeft, defaultingStudents }) => {
-  try {
-    const siteUrl = process.env.SITE_URL || process.env.FRONTEND_URL || 'http://localhost:5173';
-    const urgency = daysLeft === 0 ? 'TODAY' : 'TOMORROW';
-    
-    // Create HTML table rows for students
-    const studentRows = defaultingStudents.map(student => `
-      <tr>
-        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; color: #334155; font-size: 13px;">${student.name}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; color: #334155; font-size: 13px; font-family: monospace;">${student.regdNo}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; color: #334155; font-size: 13px;">${student.email || 'N/A'}</td>
-      </tr>
-    `).join('');
-
-    const htmlContent = `
-      <div style="font-family: Arial, sans-serif; max-width: 700px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
-        <h2 style="color: #b91c1c; border-bottom: 2px solid #b91c1c; padding-bottom: 10px; margin-top: 0;">Urgent: Defaulting Students List</h2>
-        <p>Dear <strong>${principalName}</strong>,</p>
-        <p>This is a notification that several students from your college have not yet submitted their practical records. The deadline is <strong>${urgency}</strong>.</p>
-        
-        <p style="color: #475569; font-size: 14px; margin-bottom: 10px;">Students not submitted the records please contact them to submit the records.</p>
-        
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; border: 1px solid #e2e8f0;">
-          <thead>
-            <tr style="background-color: #f1f5f9; text-align: left;">
-              <th style="padding: 10px 8px; font-size: 12px; text-transform: uppercase; color: #475569; border-bottom: 2px solid #cbd5e1;">Student Name</th>
-              <th style="padding: 10px 8px; font-size: 12px; text-transform: uppercase; color: #475569; border-bottom: 2px solid #cbd5e1;">Reg No</th>
-              <th style="padding: 10px 8px; font-size: 12px; text-transform: uppercase; color: #475569; border-bottom: 2px solid #cbd5e1;">Email Address</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${studentRows}
-          </tbody>
-        </table>
-
-        <div style="text-align: center; margin: 30px 0;">
-          <a href="${siteUrl}/login" style="background-color: #0f766e; color: white; padding: 12px 25px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">Log In to Portal for Details</a>
-        </div>
-      </div>
-    `;
-
-    const mailOptions = {
-      from: `"AKNU Digitization Portal" <${SMTP_FROM}>`,
-      to,
-      subject: `Urgent: Defaulting Students Alert - Deadline ${urgency}`,
-      html: htmlContent,
-      text: convertHtmlToText(htmlContent).replace(/^\s+|\s+$/gm, '')
-    };
-
-    const info = await transporter.sendMail(mailOptions);
-    console.log(`Principal reminder email sent to ${to}`);
-    return info;
-  } catch (error) {
-    console.error('Failed to send principal reminder email:', error);
-  }
+exports.sendPrincipalDeadlineReminderEmail = async () => {
+  return { skipped: true, reason: 'Disabled to conserve ZeptoMail quota' };
 };
 
-/**
- * Send Evaluator Deadline Reminder Email
- */
-exports.sendEvaluatorDeadlineReminderEmail = async ({ to, evaluatorName, daysLeft, pendingCount, valuationDeadline }) => {
-  try {
-    const siteUrl = process.env.SITE_URL || process.env.FRONTEND_URL || 'http://localhost:5173';
-    const urgency = daysLeft === 0 ? 'TODAY' : 'TOMORROW';
-    const formattedDate = valuationDeadline ? new Date(valuationDeadline).toLocaleDateString() : 'the given deadline';
-    
-    const htmlContent = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
-        <h2 style="color: #b91c1c; border-bottom: 2px solid #b91c1c; padding-bottom: 10px; margin-top: 0;">Urgent: Evaluation Deadline</h2>
-        <p>Dear <strong>${evaluatorName}</strong>,</p>
-        <p>This is a reminder that the deadline to evaluate your assigned practical records is <strong>${urgency}</strong>.</p>
-        
-        <div style="background-color: #fef2f2; border-left: 4px solid #dc2626; padding: 15px; margin: 20px 0; border-radius: 4px;">
-          <h4 style="margin-top: 0; color: #991b1b; text-transform: uppercase; font-size: 13px; letter-spacing: 0.5px;">Action Required</h4>
-          <p style="margin: 5px 0; font-size: 13px; color: #475569;">Please make sure to evaluate the allocated subject within the given valuation date: <strong>${formattedDate}</strong>.</p>
-        </div>
-
-        <div style="text-align: center; margin: 30px 0;">
-          <a href="${siteUrl}/login" style="background-color: #0f766e; color: white; padding: 12px 25px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">Log In to Portal</a>
-        </div>
-      </div>
-    `;
-
-    const mailOptions = {
-      from: `"AKNU Digitization Portal" <${SMTP_FROM}>`,
-      to,
-      subject: `Action Required: Evaluation Deadline is ${urgency}`,
-      html: htmlContent,
-      text: convertHtmlToText(htmlContent).replace(/^\s+|\s+$/gm, '')
-    };
-
-    const info = await transporter.sendMail(mailOptions);
-    console.log(`Evaluator reminder email sent to ${to}`);
-    return info;
-  } catch (error) {
-    console.error('Failed to send evaluator reminder email:', error);
-  }
+exports.sendEvaluatorDeadlineReminderEmail = async () => {
+  return { skipped: true, reason: 'Disabled to conserve ZeptoMail quota' };
 };
 
 /**

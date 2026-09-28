@@ -81,6 +81,20 @@ const Pagination = ({ total, page, onPage, pageSize = 10 }) => {
   );
 };
 
+const formatDateTime = (dateStr) => {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return null;
+  return d.toLocaleString('en-GB', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  });
+};
+
 const AssignmentTable = ({
   title,
   data,
@@ -147,6 +161,7 @@ const AssignmentTable = ({
               <th className="px-4 py-3 text-left whitespace-nowrap">Pages</th>
               <th className="px-4 py-3 text-left whitespace-nowrap">Record Submission Deadline</th>
               <th className="px-4 py-3 text-left whitespace-nowrap">Suggested Marks Deadline</th>
+              <th className="px-4 py-3 text-left whitespace-nowrap">Uploaded At</th>
               <th className="px-4 py-3 text-left whitespace-nowrap">Status</th>
               <th className="px-4 py-3 text-center whitespace-nowrap">Action</th>
             </tr>
@@ -220,8 +235,15 @@ const AssignmentTable = ({
                       )}
                     </div>
                   </td>
-                  {/* <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">{assignment.evaluatorId?.fullName || <span className="text-slate-400 italic text-xs">Unassigned</span>}</td> */}
-                  {/* <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">{assignment.status === 'Evaluated' ? assignment.evaluatorId?.fullName : '—'}</td> */}
+                  <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
+                    {assignment.submittedAt ? (
+                      <span className="font-medium text-slate-800 text-xs">
+                        {formatDateTime(assignment.submittedAt)}
+                      </span>
+                    ) : (
+                      <span className="text-slate-400 italic text-xs">Pending Upload</span>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
                     <div className="flex flex-col gap-1 items-start">
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold

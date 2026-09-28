@@ -47,22 +47,12 @@ exports.getAssignedRecords = async (evaluatorId) => {
     .populate('subjectId')
     .lean();
 
-  const cutoffDate = new Date('2026-08-28T00:00:00Z');
-
   const filteredRecords = records.filter(record => {
     if (record.mode === 'Supply') return true;
     if (!record.studentId || (!record.subjectId && !record.groupSubjectName)) return false;
 
     if (record.subjectId && record.subjectId.semester) {
       if (String(record.subjectId.semester) !== String(record.studentId.currentSemester)) return false;
-
-      // For non-2nd semester records, only show them if they were re-uploaded on or after the cutoff date
-      if (String(record.subjectId.semester) !== '2') {
-        const recordSubmittedAt = new Date(record.submittedAt || 0);
-        if (recordSubmittedAt < cutoffDate) {
-          return false;
-        }
-      }
     }
 
     return true;

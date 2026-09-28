@@ -290,7 +290,7 @@ exports.resetEvaluation = async (req, res) => {
       userRole: req.user.role,
       actionType: 'UPDATE_EVALUATION',
       entityType: 'Assignment',
-      details: { description: `Reset evaluation for assignment ${assignmentId} to allow student re-upload.` }
+      details: { description: `Reset evaluation for assignment ${assignmentId} to allow student submission.` }
     }).catch(err => console.error("Activity logging failed:", err));
 
     res.status(200).json(result);
@@ -313,7 +313,7 @@ exports.bulkResetEvaluation = async (req, res) => {
       userRole: req.user.role,
       actionType: 'UPDATE_EVALUATION',
       entityType: 'Assignment',
-      details: { description: `Bulk reset evaluation for ${assignmentIds.length} assignments to allow student re-upload.` }
+      details: { description: `Bulk reset evaluation for ${assignmentIds.length} assignments to allow student submission.` }
     }).catch(err => console.error("Activity logging failed:", err));
 
     res.status(200).json(result);
@@ -465,8 +465,11 @@ exports.getEvaluationReport = async (req, res) => {
 
 exports.downloadBulkRecordsZip = async (req, res) => {
   try {
+    const origin = req.headers.origin || 'https://educationmod.aknu.edu.in';
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
     const bulkDownloadService = require('../services/bulkDownloadService');
-    await bulkDownloadService.streamBulkRecordsZip(req.query, res);
+    await bulkDownloadService.streamBulkRecordsZip(req.query, res, req);
   } catch (error) {
     console.error('Bulk zip error:', error);
     if (!res.headersSent) {
@@ -660,8 +663,8 @@ exports.bulkUpdateAssignmentDeadlines = async (req, res) => {
 
 exports.getDashboardStats = async (req, res) => {
   try {
-    const { collegeId } = req.query;
-    const result = await masterDataService.getDashboardStats(collegeId);
+    const { collegeId, semester } = req.query;
+    const result = await masterDataService.getDashboardStats(collegeId, semester);
     res.json(result);
   } catch (error) {
     res.status(error.statusCode || 500).json({ message: error.message });
@@ -691,23 +694,25 @@ exports.resetStudentRegistration = async (req, res) => {
 exports.getMissingSuggestedMarksDetails = async (req, res) => {
   try {
     const { collegeId } = req.params;
+    const { semester } = req.query;
     if (!collegeId) {
       return res.status(400).json({ message: 'College ID is required.' });
     }
-    const result = await masterDataService.getMissingSuggestedMarksDetails(collegeId);
+    const result = await masterDataService.getMissingSuggestedMarksDetails(collegeId, semester);
     res.json(result);
   } catch (error) {
     res.status(error.statusCode || 500).json({ message: error.message });
   }
 };
 
-exports.getPendingReuploadsDetails = async (req, res) => {
+exports.getPendingSubmissionsDetails = async (req, res) => {
   try {
     const { collegeId } = req.params;
+    const { semester } = req.query;
     if (!collegeId) {
       return res.status(400).json({ message: 'College ID is required.' });
     }
-    const result = await masterDataService.getPendingReuploadsDetails(collegeId);
+    const result = await masterDataService.getPendingSubmissionsDetails(collegeId, semester);
     res.json(result);
   } catch (error) {
     res.status(error.statusCode || 500).json({ message: error.message });

@@ -18,7 +18,8 @@ exports.submitAssignment = async (req, res) => {
       file: req.file,
       user: req.user,
       note: req.body.note,
-      extractedText: req.body.extractedText
+      extractedText: req.body.extractedText,
+      qrData: req.body.qrData
     });
 
     const assignment = result.assignment || {};

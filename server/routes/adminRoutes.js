@@ -20,7 +20,7 @@ router.post('/reallocate-evaluator', adminController.reallocateEvaluator);
 // Data fetching
 router.get('/dashboard-stats', adminController.getDashboardStats);
 router.get('/missing-suggested-marks/:collegeId', adminController.getMissingSuggestedMarksDetails);
-router.get('/pending-reuploads/:collegeId', adminController.getPendingReuploadsDetails);
+router.get('/pending-submissions/:collegeId', adminController.getPendingSubmissionsDetails);
 router.get('/students', adminController.getStudents);
 router.get('/subjects', adminController.getSubjects);
 router.get('/evaluators', adminController.getEvaluators);

@@ -12,6 +12,7 @@ import BarcodePDF from '../../components/BarcodePDF';
 import CertificatePDF from '../../components/CertificatePDF';
 import SessionTimer from '../../components/SessionTimer';
 import ActivityFeed from '../../components/ActivityFeed';
+import { verifyPdfRecordQrCode } from '../../utils/qrPdfScanner';
 
 /* ── Pagination component ── */
 const Pagination = ({ total, page, onPage, pageSize = 10 }) => {
@@ -219,12 +220,6 @@ const AssignmentTable = ({ title, data, currentPage, setCurrentPage, handleGener
                             {(() => {
                               if (isLocked) return 'Locked';
                               if (assignment.status === 'Submitted') {
-                                const isNonSem2 = String(assignment.subjectId?.semester) !== '2';
-                                const cutoffDate = new Date('2026-08-28T00:00:00Z');
-                                const submittedAt = assignment.submittedAt ? new Date(assignment.submittedAt) : new Date(0);
-                                if (isNonSem2 && submittedAt < cutoffDate) {
-                                  return 'Re-upload';
-                                }
                                 return 'Update';
                               }
                               return 'Upload PDF';
@@ -299,12 +294,28 @@ const UploadRecordModal = ({ assignment, onClose, onSuccess }) => {
     setUploading(true);
     setError('');
 
+    // Major Check: Scan first 5 pages (including certificate page) for QR Code to verify Student Roll Number & Subject Code
+    setScanProgress('Analyzing first 5 pages for QR Code verification...');
+    const verification = await verifyPdfRecordQrCode(file, assignment, user, (progressMsg) => {
+      setScanProgress(progressMsg);
+    });
+
+    if (!verification.success) {
+      setError(verification.message || 'QR Code verification failed.');
+      setUploading(false);
+      setScanProgress('');
+      return;
+    }
+
+    setScanProgress('QR Code verified! Uploading record...');
+
     const formData = new FormData();
     formData.append('file', file);
     if (note.trim()) {
       formData.append('note', note.trim());
     }
-    formData.append('extractedText', 'BYPASSED_VERIFICATION');
+    formData.append('extractedText', verification.qrData || 'QR_VERIFIED_SUCCESS');
+    formData.append('qrData', verification.qrData || '');
 
     try {
       const token = localStorage.getItem('token');
@@ -318,12 +329,13 @@ const UploadRecordModal = ({ assignment, onClose, onSuccess }) => {
           }
         }
       );
-      onSuccess('Lab record uploaded successfully!');
+      onSuccess('Lab record verified and uploaded successfully!');
     } catch (err) {
       console.error(err);
       setError(err.response?.data?.message || 'Failed to upload lab record. Please try again.');
     } finally {
       setUploading(false);
+      setScanProgress('');
     }
   };
 
@@ -335,7 +347,7 @@ const UploadRecordModal = ({ assignment, onClose, onSuccess }) => {
         <div className="flex items-center justify-between px-6 py-4 bg-teal-700 text-white">
           <div className="flex items-center gap-2">
             <Upload className="h-5 w-5" />
-            <h3 className="text-lg font-semibold">{assignment.status === 'Submitted' ? 'Re-upload Record' : 'Upload Completed Record'}</h3>
+            <h3 className="text-lg font-semibold">{assignment.status === 'Submitted' ? 'Update Record' : 'Upload Completed Record'}</h3>
           </div>
           <button onClick={onClose} className="text-white/70 hover:text-white transition-colors cursor-pointer rounded-md p-0.5">
             <X className="h-5 w-5" />
@@ -400,8 +412,15 @@ const UploadRecordModal = ({ assignment, onClose, onSuccess }) => {
             </div>
           )}
 
+          {scanProgress && uploading && (
+            <div className="p-3 bg-teal-50 text-teal-800 rounded-md text-xs font-semibold border border-teal-200 flex items-center gap-2">
+              <RefreshCw className="h-4 w-4 animate-spin text-teal-600 flex-shrink-0" />
+              <span>{scanProgress}</span>
+            </div>
+          )}
+
           {error && (
-            <div className="p-3 bg-red-50 text-red-700 rounded-md text-sm font-medium border border-red-200">
+            <div className="p-3 bg-red-50 text-red-700 rounded-md text-xs font-medium border border-red-200 whitespace-pre-line leading-relaxed">
               ✕ {error}
             </div>
           )}
@@ -436,7 +455,7 @@ const UploadRecordModal = ({ assignment, onClose, onSuccess }) => {
               className="flex items-center gap-2 px-5 py-2 rounded-md text-sm font-semibold text-white bg-teal-700 hover:bg-teal-800 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {uploading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
-              {uploading ? (scanProgress || 'Uploading…') : (assignment.status === 'Submitted' ? 'Update Record' : 'Submit Record')}
+              {uploading ? (scanProgress || 'Processing…') : (assignment.status === 'Submitted' ? 'Update Record' : 'Submit Record')}
             </button>
           </div>
         </form>
@@ -558,18 +577,8 @@ const Dashboard = () => {
   const [regularPage, setRegularPage] = useState(1);
   const [supplyPage, setSupplyPage] = useState(1);
 
-  const cutoffDate = new Date('2026-08-28T00:00:00Z');
   const allSubmitted = assignments.length > 0 && assignments.every(a => {
-    if (a.status !== 'Submitted' && a.status !== 'Evaluated') return false;
-
-    const semester = String(a.subjectId?.semester || a.studentId?.currentSemester || '2');
-    if (semester !== '2') {
-      const submittedAt = new Date(a.submittedAt || 0);
-      if (submittedAt < cutoffDate) {
-        return false;
-      }
-    }
-    return true;
+    return a.status === 'Submitted' || a.status === 'Evaluated';
   });
 
   let latestCompletionDate = '';

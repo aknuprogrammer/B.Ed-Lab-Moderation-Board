@@ -39,7 +39,7 @@ exports.getMyAssignments = async (user) => {
   return filtered;
 };
 
-exports.submitAssignment = async ({ assignmentId, file, user, note, extractedText: clientExtractedText }) => {
+exports.submitAssignment = async ({ assignmentId, file, user, note, extractedText: clientExtractedText, qrData }) => {
   if (!file) {
     throw new AppError('No file uploaded', 400);
   }
@@ -77,7 +77,6 @@ exports.submitAssignment = async ({ assignmentId, file, user, note, extractedTex
     }
   }
 
-  let serverExtractedText = '';
   try {
     const dataBuffer = fs.readFileSync(file.path);
 
@@ -88,7 +87,21 @@ exports.submitAssignment = async ({ assignmentId, file, user, note, extractedTex
       if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
       throw new AppError(inspectionResult.reason || 'Digitally pasted signature image overlay detected on Certificate Page. Please scan and upload the physical paper record signed by your Principal.', 400);
     }
-    // Subject and student details OCR verification has been removed as requested.
+
+    // Major Check: Verify Student Roll Number and Subject Code via QR Code
+    const { validateQrPayload } = require('../utils/qrPayloadValidator');
+    const effectiveQr = qrData || clientExtractedText;
+    const qrValidation = validateQrPayload(effectiveQr, {
+      userRegdNo: user.regdNo,
+      subCode: assignment.subjectId?.subCode,
+      groupSubjectName: assignment.groupSubjectName,
+      subName: assignment.subjectId?.subName
+    });
+
+    if (!qrValidation.valid) {
+      if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+      throw new AppError(qrValidation.message, 400);
+    }
   } catch (parseError) {
     if (parseError.statusCode) throw parseError;
     console.error('PDF Parse Error:', parseError);
@@ -102,7 +115,8 @@ exports.submitAssignment = async ({ assignmentId, file, user, note, extractedTex
   assignment.submittedAt = new Date();
   if (note) assignment.studentNote = note;
   
-  assignment.extractedText = 'QR_VERIFIED_SUCCESS';
+  const effectiveQr = qrData || clientExtractedText;
+  assignment.extractedText = effectiveQr || 'QR_VERIFIED_SUCCESS';
 
   // Auto-routing to assigned evaluators
   if (!assignment.evaluatorId) {

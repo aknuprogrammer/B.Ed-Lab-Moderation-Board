@@ -157,8 +157,11 @@ exports.approveAllPapers = async (req, res) => {
 
 exports.downloadBulkRecordsZip = async (req, res) => {
   try {
+    const origin = req.headers.origin || 'https://educationmod.aknu.edu.in';
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
     const bulkDownloadService = require('../services/bulkDownloadService');
-    await bulkDownloadService.streamBulkRecordsZip(req.query, res);
+    await bulkDownloadService.streamBulkRecordsZip(req.query, res, req);
   } catch (error) {
     console.error('BOS bulk zip error:', error);
     if (!res.headersSent) {

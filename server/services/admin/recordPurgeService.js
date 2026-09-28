@@ -3,13 +3,14 @@ const path = require('path');
 const mongoose = require('mongoose');
 const Assignment = require('../../models/Assignment');
 const User = require('../../models/User');
-const { Subject } = require('../../models/MasterData');
+const { Subject, Paper } = require('../../models/MasterData');
+const PaperApproval = require('../../models/PaperApproval');
 
 /**
  * Permanently purge assignment database records and delete uploaded PDF files from server disk.
  * Returns count of deleted records and reclaimed disk space in Megabytes (MB).
  */
-exports.purgeAssignmentRecords = async ({ semester, collegeId, status, mode, search }) => {
+exports.purgeAssignmentRecords = async ({ semester, collegeId, status, mode, search, resetEvaluators, retainBacklogCandidates = true }) => {
   const query = {};
   if (status && status !== 'all') query.status = status;
   if (mode && mode !== 'all') query.mode = mode;
@@ -39,8 +40,12 @@ exports.purgeAssignmentRecords = async ({ semester, collegeId, status, mode, sea
     }
   }
 
-  // Find target assignments to delete
-  const targetAssignments = await Assignment.find(query).select('_id filePath').lean();
+  // Find target assignments to delete or clean
+  const targetAssignments = await Assignment.find(query)
+    .select('_id filePath score isAbsent status maxMarks subjectId studentId')
+    .populate('subjectId', 'subPassMarks maxMarks')
+    .lean();
+
   if (targetAssignments.length === 0) {
     return { deletedCount: 0, freedSpaceMB: 0, message: 'No records found matching purge criteria.' };
   }
@@ -48,7 +53,7 @@ exports.purgeAssignmentRecords = async ({ semester, collegeId, status, mode, sea
   let totalBytesFreed = 0;
   let deletedFilesCount = 0;
 
-  // Unlink stored PDF files from filesystem
+  // Unlink stored PDF files from filesystem for all target assignments
   for (const asg of targetAssignments) {
     if (asg.filePath) {
       try {
@@ -65,15 +70,76 @@ exports.purgeAssignmentRecords = async ({ semester, collegeId, status, mode, sea
     }
   }
 
-  const targetIds = targetAssignments.map(a => a._id);
-  const deleteResult = await Assignment.deleteMany({ _id: { $in: targetIds } });
+  const passedAssignmentIds = [];
+  const backlogCandidateIds = [];
+
+  for (const asg of targetAssignments) {
+    const passMark = asg.subjectId?.subPassMarks != null 
+      ? asg.subjectId.subPassMarks 
+      : ((asg.maxMarks || asg.subjectId?.maxMarks || 100) * 0.4);
+
+    const isPassed = asg.status === 'Evaluated' && !asg.isAbsent && asg.score != null && asg.score >= passMark;
+
+    if (retainBacklogCandidates && !isPassed) {
+      backlogCandidateIds.push(asg._id);
+    } else {
+      passedAssignmentIds.push(asg._id);
+    }
+  }
+
+  // Completely remove passed records from MongoDB
+  let deletedCount = 0;
+  if (passedAssignmentIds.length > 0) {
+    const deleteResult = await Assignment.deleteMany({ _id: { $in: passedAssignmentIds } });
+    deletedCount = deleteResult.deletedCount || passedAssignmentIds.length;
+  }
+
+  // For backlog candidates: clear filePath so disk storage is freed, but keep evaluation history
+  if (backlogCandidateIds.length > 0) {
+    await Assignment.updateMany(
+      { _id: { $in: backlogCandidateIds } },
+      { $set: { filePath: null } }
+    );
+  }
+
+  // Clean up associated PaperApprovals
+  try {
+    const paperApprovalQuery = {};
+    if (semester && semester !== 'all' && semester !== 'undefined') {
+      const semPapers = await Paper.find({ semester: String(semester) }).select('_id').lean();
+      if (semPapers.length > 0) {
+        paperApprovalQuery.paperId = { $in: semPapers.map(p => p._id) };
+      }
+    }
+    await PaperApproval.deleteMany(paperApprovalQuery);
+  } catch (paErr) {
+    console.error('Error cleaning up PaperApprovals during purge:', paErr);
+  }
+
+  // If requested or all records purged, reset evaluator subject allocations for fresh semester start
+  let evaluatorsReset = false;
+  if (resetEvaluators) {
+    try {
+      await User.updateMany(
+        { role: 'EVALUATOR' },
+        { $set: { subjects: [], groupSubjects: [] } }
+      );
+      evaluatorsReset = true;
+    } catch (evalErr) {
+      console.error('Error resetting evaluator allocations during purge:', evalErr);
+    }
+  }
 
   const freedSpaceMB = (totalBytesFreed / (1024 * 1024)).toFixed(2);
 
   return {
-    deletedCount: deleteResult.deletedCount || targetAssignments.length,
+    deletedCount,
+    retainedBacklogCount: backlogCandidateIds.length,
     deletedFilesCount,
     freedSpaceMB: Number(freedSpaceMB),
-    message: `Successfully purged ${deleteResult.deletedCount || targetAssignments.length} records and reclaimed ${freedSpaceMB} MB disk space.`
+    evaluatorsReset,
+    message: retainBacklogCandidates 
+      ? `Successfully purged ${deletedCount} passed records (${backlogCandidateIds.length} backlog candidates retained) and reclaimed ${freedSpaceMB} MB disk space.`
+      : `Successfully purged all ${deletedCount} records and reclaimed ${freedSpaceMB} MB disk space.`
   };
 };

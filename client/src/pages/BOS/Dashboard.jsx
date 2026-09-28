@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { Check, X, Eye, RefreshCw, AlertCircle, ShieldCheck, LogOut, ChevronLeft, ChevronRight, BookOpen, Sparkles, ClipboardCheck, Search, FileSpreadsheet, Archive, Trash2 } from 'lucide-react';
+import { Check, X, Eye, RefreshCw, AlertCircle, ShieldCheck, LogOut, ChevronLeft, ChevronRight, BookOpen, Sparkles, ClipboardCheck, Search, FileSpreadsheet, Archive, Trash2, FolderDown } from 'lucide-react';
 import { API_BASE_URL } from '../../utils/config';
 import SessionTimer from '../../components/SessionTimer';
 import ConfirmModal from '../../components/ConfirmModal';
@@ -37,28 +37,26 @@ const BOSDashboard = () => {
   const [downloadingZip, setDownloadingZip] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState(null);
 
-  const handleDownloadBulkZip = async () => {
+  const handleDownloadBulkZip = (targetCollegeId = null) => {
     try {
       setDownloadingZip(true);
       setError('');
       const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_BASE_URL}/api/bos/download-bulk-zip`, {
-        headers: { Authorization: `Bearer ${token}` },
-        responseType: 'blob'
-      });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      let downloadUrl = `${API_BASE_URL}/api/bos/download-bulk-zip?token=${token}`;
+      if (targetCollegeId && typeof targetCollegeId === 'string') {
+        downloadUrl += `&collegeId=${encodeURIComponent(targetCollegeId)}`;
+      }
       const link = document.createElement('a');
-      link.href = url;
+      link.href = downloadUrl;
       link.setAttribute('download', `Student_Records_Bulk_${Date.now()}.zip`);
       document.body.appendChild(link);
       link.click();
       link.remove();
-      window.URL.revokeObjectURL(url);
     } catch (err) {
       console.error('BOS zip download error:', err);
       setError('Failed to download bulk ZIP file.');
     } finally {
-      setDownloadingZip(false);
+      setTimeout(() => setDownloadingZip(false), 3000);
     }
   };
 
@@ -679,6 +677,16 @@ const BOSDashboard = () => {
                               <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-800 border border-rose-200 shadow-sm">
                                 Rejected
                               </span>
+                            )}
+                            {principal.collegeId && (
+                              <button
+                                type="button"
+                                onClick={() => handleDownloadBulkZip(principal.collegeId?._id || principal.collegeId)}
+                                className="text-slate-400 hover:text-teal-600 transition-colors cursor-pointer p-1.5 rounded-md hover:bg-teal-50 ml-1.5 inline-flex items-center"
+                                title={`Download submitted records for ${principal.collegeName || 'this college'}`}
+                              >
+                                <FolderDown className="h-4 w-4" />
+                              </button>
                             )}
                           </td>
                         </tr>

@@ -911,52 +911,66 @@ exports.bulkUpdateAssignmentDeadlines = async ({ assignmentIds, deadline, sugges
   return { message: `Successfully updated deadlines for ${result.modifiedCount} assignments.`, modifiedCount: result.modifiedCount };
 };
 
-exports.getDashboardStats = async (collegeId) => {
+exports.getDashboardStats = async (collegeId, semester) => {
   const userFilter = {};
   if (collegeId && collegeId !== 'all' && collegeId !== 'undefined' && collegeId !== 'null') {
     userFilter.collegeId = collegeId;
+  }
+
+  // Get all unique semesters to populate filter and determine active promoted semester
+  const studentSemesters = await User.distinct('currentSemester', { role: 'STUDENT', currentSemester: { $ne: null } });
+  const subjectSemesters = await Subject.distinct('semester', { semester: { $ne: null } });
+  const availableSemesters = [...new Set([...studentSemesters, ...subjectSemesters].filter(Boolean))].sort((a, b) => {
+    return String(a).localeCompare(String(b), undefined, { numeric: true });
+  });
+
+  // Default to active promoted semester of students if not explicitly provided
+  let targetSemester = semester;
+  if (!targetSemester) {
+    if (studentSemesters.length > 0) {
+      const topSem = await User.aggregate([
+        { $match: { role: 'STUDENT', currentSemester: { $exists: true, $ne: null } } },
+        { $group: { _id: '$currentSemester', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 1 }
+      ]);
+      targetSemester = topSem.length > 0 ? String(topSem[0]._id) : availableSemesters[0] || '1';
+    } else {
+      targetSemester = availableSemesters[0] || '1';
+    }
   }
 
   // Count Principals
   const totalPrincipals = await User.countDocuments({ ...userFilter, role: 'PRINCIPAL' });
   const totalPrincipalsRegistered = await User.countDocuments({ ...userFilter, role: 'PRINCIPAL', isSetupComplete: true });
 
-  // Count Students
-  const totalStudents = await User.countDocuments({ ...userFilter, role: 'STUDENT' });
-  const totalStudentsRegistered = await User.countDocuments({ ...userFilter, role: 'STUDENT', isSetupComplete: true });
+  // Count Students (filtered by target semester if specific semester is selected)
+  const studentCountFilter = { ...userFilter, role: 'STUDENT' };
+  if (targetSemester && targetSemester !== 'all') {
+    studentCountFilter.currentSemester = String(targetSemester);
+  }
+  const totalStudents = await User.countDocuments(studentCountFilter);
+  const totalStudentsRegistered = await User.countDocuments({ ...studentCountFilter, isSetupComplete: true });
 
-  // Count Records (Assignments)
+  // Count Records (Assignments) filtered by College and Target Semester
   let recordFilter = {};
   if (collegeId && collegeId !== 'all' && collegeId !== 'undefined' && collegeId !== 'null') {
-    // Find all student IDs belonging to this college
     const studentIds = await User.find({ collegeId, role: 'STUDENT' }).distinct('_id');
     recordFilter.studentId = { $in: studentIds };
   }
 
-  const cutoffDate = new Date('2026-08-28T00:00:00Z');
-  
-  // Find subject IDs by semester
-  const sem2Subjects = await Subject.find({ semester: '2' }).distinct('_id');
-  const otherSemSubjects = await Subject.find({ semester: { $ne: '2' } }).distinct('_id');
+  if (targetSemester && targetSemester !== 'all') {
+    const semSubjects = await Subject.find({ semester: String(targetSemester) }).distinct('_id');
+    recordFilter.subjectId = { $in: semSubjects };
+  }
 
   const totalRecords = await Assignment.countDocuments(recordFilter);
   
-  // Semester 2 uses standard submitted logic
-  const sem2SubmittedCount = await Assignment.countDocuments({
+  const totalRecordsSubmitted = await Assignment.countDocuments({
     ...recordFilter,
-    subjectId: { $in: sem2Subjects },
     status: { $in: ['Submitted', 'Evaluated'] }
   });
 
-  // Other semesters require submittedAt to be >= cutoffDate (Re-upload logic)
-  const otherSemReuploadedCount = await Assignment.countDocuments({
-    ...recordFilter,
-    subjectId: { $in: otherSemSubjects },
-    status: { $in: ['Submitted', 'Evaluated'] },
-    submittedAt: { $gte: cutoffDate }
-  });
-
-  const totalRecordsSubmitted = sem2SubmittedCount + otherSemReuploadedCount;
   const totalRecordsPending = totalRecords - totalRecordsSubmitted;
 
   const missingSuggestedMarksByCollege = await Assignment.aggregate([
@@ -965,10 +979,7 @@ exports.getDashboardStats = async (collegeId) => {
         ...recordFilter,
         suggestedMarks: null,
         isAbsent: { $ne: true },
-        $or: [
-          { subjectId: { $in: sem2Subjects }, status: { $in: ['Submitted', 'Evaluated'] } },
-          { subjectId: { $in: otherSemSubjects }, status: { $in: ['Submitted', 'Evaluated'] }, submittedAt: { $gte: cutoffDate } }
-        ]
+        status: { $in: ['Submitted', 'Evaluated'] }
       }
     },
     {
@@ -999,18 +1010,13 @@ exports.getDashboardStats = async (collegeId) => {
     }
   ]);
 
-  const pendingReuploadsByCollege = await Assignment.aggregate([
+  const pendingSubmissionsByCollege = await Assignment.aggregate([
     {
       $match: {
         ...recordFilter,
         $or: [
           { status: 'Pending' },
-          { isAbsent: true },
-          { 
-            subjectId: { $in: otherSemSubjects }, 
-            status: { $in: ['Submitted', 'Evaluated'] }, 
-            submittedAt: { $lt: cutoffDate } 
-          }
+          { isAbsent: true }
         ]
       }
     },
@@ -1046,14 +1052,14 @@ exports.getDashboardStats = async (collegeId) => {
     String(a.collegeCode || '').localeCompare(String(b.collegeCode || ''), undefined, { numeric: true, sensitivity: 'base' })
   );
 
-  pendingReuploadsByCollege.sort((a, b) => 
+  pendingSubmissionsByCollege.sort((a, b) => 
     String(a.collegeCode || '').localeCompare(String(b.collegeCode || ''), undefined, { numeric: true, sensitivity: 'base' })
   );
+
   const subjectWiseCounts = await Assignment.aggregate([
     { 
       $match: { 
         ...recordFilter,
-        submittedAt: { $gt: new Date('2026-08-28T00:00:00.000Z') },
         status: { $in: ['Submitted', 'Evaluated'] }
       } 
     },
@@ -1088,21 +1094,30 @@ exports.getDashboardStats = async (collegeId) => {
     totalRecordsSubmitted,
     totalRecordsPending,
     missingSuggestedMarksByCollege,
-    pendingReuploadsByCollege,
-    subjectWiseCounts
+    pendingSubmissionsByCollege,
+    subjectWiseCounts,
+    availableSemesters,
+    currentSemester: targetSemester
   };
 };
 
-exports.getMissingSuggestedMarksDetails = async (collegeId) => {
+exports.getMissingSuggestedMarksDetails = async (collegeId, semester) => {
   const mongoose = require('mongoose');
   
+  const matchQuery = {
+    status: { $in: ['Submitted', 'Evaluated'] },
+    suggestedMarks: null,
+    isAbsent: { $ne: true }
+  };
+
+  if (semester && semester !== 'all') {
+    const semSubjects = await Subject.find({ semester: String(semester) }).distinct('_id');
+    matchQuery.subjectId = { $in: semSubjects };
+  }
+
   const records = await Assignment.aggregate([
     {
-      $match: {
-        status: { $in: ['Submitted', 'Evaluated'] },
-        suggestedMarks: null,
-        isAbsent: { $ne: true }
-      }
+      $match: matchQuery
     },
     {
       $lookup: {
@@ -1144,26 +1159,25 @@ exports.getMissingSuggestedMarksDetails = async (collegeId) => {
   return records;
 };
 
-exports.getPendingReuploadsDetails = async (collegeId) => {
+exports.getPendingSubmissionsDetails = async (collegeId, semester) => {
   const mongoose = require('mongoose');
-  const Subject = require('../../models/MasterData').Subject;
   const Assignment = require('../../models/Assignment');
-  const cutoffDate = new Date('2026-08-28T00:00:00Z');
-  const otherSemSubjects = await Subject.find({ semester: { $ne: '2' } }).distinct('_id');
+
+  const matchQuery = {
+    $or: [
+      { status: 'Pending' },
+      { isAbsent: true }
+    ]
+  };
+
+  if (semester && semester !== 'all') {
+    const semSubjects = await Subject.find({ semester: String(semester) }).distinct('_id');
+    matchQuery.subjectId = { $in: semSubjects };
+  }
 
   const records = await Assignment.aggregate([
     {
-      $match: {
-        $or: [
-          { status: 'Pending' },
-          { isAbsent: true },
-          { 
-            subjectId: { $in: otherSemSubjects }, 
-            status: { $in: ['Submitted', 'Evaluated'] }, 
-            submittedAt: { $lt: cutoffDate } 
-          }
-        ]
-      }
+      $match: matchQuery
     },
     {
       $lookup: {
