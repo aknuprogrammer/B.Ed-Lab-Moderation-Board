@@ -4,6 +4,7 @@ const { Subject, Course } = require('../../models/MasterData');
 const emailService = require('../emailService');
 const AppError = require('../../utils/AppError');
 const bcrypt = require('bcryptjs');
+const { resolvePedagogyIndex, getStudentPedagogyName } = require('../../utils/pedagogyHelper');
 
 
 const getSemLevel = (sem) => {
@@ -97,17 +98,28 @@ exports.assignSubjects = async ({ studentIds, subjectIds, pagesRequired, academi
 
     const activeSubjectIds = targetSubjects.map(s => s._id);
 
-    // Fetch evaluators assigned to these subjects
+    // Fetch evaluators assigned to these subjects or group subjects
     const evaluators = await User.find({
       role: 'EVALUATOR',
-      subjects: { $in: activeSubjectIds }
+      $or: [
+        { subjects: { $in: activeSubjectIds } },
+        { groupSubjects: { $exists: true, $ne: [] } }
+      ]
     }).lean();
 
     const subjectEvaluatorMap = {};
+    const groupEvaluatorMap = {};
     evaluators.forEach(ev => {
       if (ev.subjects && Array.isArray(ev.subjects)) {
         ev.subjects.forEach(subId => {
           subjectEvaluatorMap[subId.toString()] = ev._id;
+        });
+      }
+      if (ev.groupSubjects && Array.isArray(ev.groupSubjects)) {
+        ev.groupSubjects.forEach(grp => {
+          if (grp && !groupEvaluatorMap[grp]) {
+            groupEvaluatorMap[grp] = ev._id;
+          }
         });
       }
     });
@@ -160,10 +172,8 @@ exports.assignSubjects = async ({ studentIds, subjectIds, pagesRequired, academi
 
       if (belongsToMe) {
         if (subject.studentChoice === 'C' || subject.studentChoice === 'c') {
-          const pedIndex = choiceIndexMap[subject._id.toString()];
-          const pedName = student.groupId && student.groupId.subjects && student.groupId.subjects[pedIndex]
-            ? student.groupId.subjects[pedIndex]
-            : null;
+          const fallbackIdx = choiceIndexMap[subject._id.toString()] || 0;
+          const pedName = getStudentPedagogyName(student, subject, fallbackIdx);
           if (!pedName || String(pedName).trim() === '') {
             belongsToMe = false;
           } else {
@@ -173,7 +183,10 @@ exports.assignSubjects = async ({ studentIds, subjectIds, pagesRequired, academi
       }
 
       if (belongsToMe) {
-        const evaluatorId = subjectEvaluatorMap[subject._id.toString()] || null;
+        let evaluatorId = subjectEvaluatorMap[subject._id.toString()] || null;
+        if (!evaluatorId && assignedGroupName && groupEvaluatorMap[assignedGroupName]) {
+          evaluatorId = groupEvaluatorMap[assignedGroupName];
+        }
 
         await Assignment.findOneAndUpdate(
           { studentId: student._id, subjectId: subject._id, mode: isBacklog ? 'Supply' : 'Regular' },

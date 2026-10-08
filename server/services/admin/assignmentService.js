@@ -4,6 +4,7 @@ const { College, Course, Subject, Group } = require('../../models/MasterData');
 const Paper = require('../../models/Paper');
 const emailService = require('../emailService');
 const AppError = require('../../utils/AppError');
+const { resolvePedagogyIndex } = require('../../utils/pedagogyHelper');
 
 const getSemLevel = (sem) => {
   if (!sem) return 1;
@@ -156,7 +157,7 @@ exports.getAssignmentData = async ({ collegeCode, courseCode, semester, groupCod
       let pedagogyNames = [];
       for (const [id, group] of uniqueGroups) {
         if (group.subjects && group.subjects.length > 0) {
-          const pedIndex = i % group.subjects.length;
+          const pedIndex = resolvePedagogyIndex(sub, i, group.subjects.length);
           if (group.subjects[pedIndex]) {
             pedagogyNames.push(group.subjects[pedIndex]);
           }

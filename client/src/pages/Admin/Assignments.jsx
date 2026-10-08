@@ -310,6 +310,7 @@ const Assignments = () => {
   const [selectedSemester, setSelectedSemester] = useState('');
 
   const [students, setStudents] = useState([]);
+  const [availableSubjects, setAvailableSubjects] = useState([]);
   const [studentSearch, setStudentSearch] = useState('');
   const [selectedStudents, setSelectedStudents] = useState([]);
   const [assignments, setAssignments] = useState([]);
@@ -473,6 +474,7 @@ const Assignments = () => {
         });
 
         setStudents(res.data.students || []);
+        setAvailableSubjects(res.data.subjects || []);
 
         // Reset selections and student search when filters change
         setSelectedStudents([]);
@@ -501,24 +503,35 @@ const Assignments = () => {
     return isNaN(num) ? 0 : num;
   };
 
-  const assignedStudentsSet = useMemo(() => {
-    const set = new Set();
+  const studentAssignedSubjectCount = useMemo(() => {
+    const counts = new Map();
     const targetMode = mode === 'Backlog' ? 'Supply' : 'Regular';
     const targetSemLevel = selectedSemester ? getSemLevel(selectedSemester) : null;
 
     assignments.forEach(a => {
-      const aStudentId = a.studentId?._id || a.studentId;
+      const aStudentId = (a.studentId?._id || a.studentId)?.toString();
       const aMode = a.mode || 'Regular';
       const aSem = a.subjectId?.semester || a.studentId?.currentSemester;
 
       if (aStudentId && aMode === targetMode) {
         if (!targetSemLevel || getSemLevel(aSem) === targetSemLevel) {
-          set.add(aStudentId.toString());
+          counts.set(aStudentId, (counts.get(aStudentId) || 0) + 1);
         }
       }
     });
-    return set;
+    return counts;
   }, [assignments, mode, selectedSemester]);
+
+  const fullyAssignedStudentsSet = useMemo(() => {
+    const set = new Set();
+    const reqCount = availableSubjects.length;
+    studentAssignedSubjectCount.forEach((count, sId) => {
+      if (reqCount > 0 ? count >= reqCount : count > 0) {
+        set.add(sId);
+      }
+    });
+    return set;
+  }, [studentAssignedSubjectCount, availableSubjects]);
 
   const filteredStudents = useMemo(() => {
     if (!studentSearch) return students;
@@ -530,30 +543,30 @@ const Assignments = () => {
   }, [students, studentSearch]);
 
   const handleSelectAllStudents = () => {
-    const visibleUnassignedStudents = filteredStudents.filter(s => !assignedStudentsSet.has(s._id.toString()));
-    const visibleUnassignedIds = visibleUnassignedStudents.map(s => s._id);
-    const allVisibleUnassignedSelected = visibleUnassignedIds.length > 0 && 
-      visibleUnassignedIds.every(id => selectedStudents.includes(id));
+    const visibleSelectableStudents = filteredStudents.filter(s => !fullyAssignedStudentsSet.has(s._id.toString()));
+    const visibleSelectableIds = visibleSelectableStudents.map(s => s._id);
+    const allVisibleSelectableSelected = visibleSelectableIds.length > 0 && 
+      visibleSelectableIds.every(id => selectedStudents.includes(id));
 
-    if (allVisibleUnassignedSelected) {
-      setSelectedStudents(prev => prev.filter(id => !visibleUnassignedIds.includes(id)));
+    if (allVisibleSelectableSelected) {
+      setSelectedStudents(prev => prev.filter(id => !visibleSelectableIds.includes(id)));
     } else {
       setSelectedStudents(prev => {
-        const union = new Set([...prev, ...visibleUnassignedIds]);
+        const union = new Set([...prev, ...visibleSelectableIds]);
         return Array.from(union);
       });
     }
   };
 
   const unassignedSelectedCount = useMemo(() => {
-    return selectedStudents.filter(id => !assignedStudentsSet.has(id)).length;
-  }, [selectedStudents, assignedStudentsSet]);
+    return selectedStudents.filter(id => !fullyAssignedStudentsSet.has(id.toString())).length;
+  }, [selectedStudents, fullyAssignedStudentsSet]);
 
   const handleAssign = async () => {
-    const unassignedSelectedIds = selectedStudents.filter(id => !assignedStudentsSet.has(id));
+    const unassignedSelectedIds = selectedStudents.filter(id => !fullyAssignedStudentsSet.has(id.toString()));
 
     if (unassignedSelectedIds.length === 0) {
-      return setError('Please select at least one unassigned student.');
+      return setError('Please select at least one student who requires record assignments.');
     }
     if (!deadline || !suggestedMarksDeadline || !pagesRequired) {
       return setError('Please fill in Submission Deadline, Suggested Marks Deadline and Required Pages.');
@@ -978,12 +991,16 @@ const Assignments = () => {
                   <p className="text-sm text-slate-500 text-center py-10">No students match your search query.</p>
                 ) : (
                   filteredStudents.map(student => {
-                    const isAssigned = assignedStudentsSet.has(student._id.toString());
+                    const count = studentAssignedSubjectCount.get(student._id.toString()) || 0;
+                    const reqCount = availableSubjects.length;
+                    const isFullyAssigned = reqCount > 0 ? (count >= reqCount) : (count > 0);
+                    const isPartiallyAssigned = count > 0 && !isFullyAssigned;
+
                     return (
                       <label 
                         key={student._id} 
                         className={`flex items-center p-3 border rounded-md transition-colors ${
-                          isAssigned 
+                          isFullyAssigned 
                             ? 'border-slate-100 bg-slate-50/50 cursor-not-allowed opacity-60' 
                             : selectedStudents.includes(student._id) 
                               ? 'border-teal-500 bg-teal-50 cursor-pointer' 
@@ -992,21 +1009,26 @@ const Assignments = () => {
                       >
                         <input
                           type="checkbox"
-                          disabled={isAssigned}
-                          className={`w-4 h-4 text-teal-600 border-slate-300 rounded focus:ring-teal-500 ${isAssigned ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
-                          checked={!isAssigned && selectedStudents.includes(student._id)}
+                          disabled={isFullyAssigned}
+                          className={`w-4 h-4 text-teal-600 border-slate-300 rounded focus:ring-teal-500 ${isFullyAssigned ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+                          checked={!isFullyAssigned && selectedStudents.includes(student._id)}
                           onChange={() => toggleStudent(student._id)}
                         />
                         <div className="ml-3 flex-1 flex justify-between items-center">
                           <div>
-                            <p className={`text-sm font-medium ${isAssigned ? 'text-slate-400' : 'text-slate-900'}`}>{student.fullName}</p>
-                            <p className={`text-xs ${isAssigned ? 'text-slate-400/80' : 'text-slate-500'}`}>
+                            <p className={`text-sm font-medium ${isFullyAssigned ? 'text-slate-400' : 'text-slate-900'}`}>{student.fullName}</p>
+                            <p className={`text-xs ${isFullyAssigned ? 'text-slate-400/80' : 'text-slate-500'}`}>
                               {student.regdNo} • Grp: {student.groupId?.groupCode || 'N/A'} • Sem: {student.currentSemester || 'N/A'}
                             </p>
                           </div>
-                          {isAssigned && (
+                          {isFullyAssigned && (
                             <span className="inline-flex px-2 py-0.5 text-[10px] font-bold text-teal-800 bg-teal-50 border border-teal-200 rounded-md">
-                              Already Assigned
+                              Fully Assigned {reqCount > 0 ? `(${count}/${reqCount})` : ''}
+                            </span>
+                          )}
+                          {isPartiallyAssigned && (
+                            <span className="inline-flex px-2 py-0.5 text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200 rounded-md">
+                              Partially Assigned ({count}/{reqCount})
                             </span>
                           )}
                         </div>
