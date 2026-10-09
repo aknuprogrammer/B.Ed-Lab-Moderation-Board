@@ -61,6 +61,7 @@ router.get('/session-logs', adminController.getSessionLogs);
 router.post('/college-passwords', systemAdminOnly, adminController.updateCollegePasswords);
 router.get('/paper-approvals', adminController.getPaperApprovals);
 router.post('/students/:id/reset-registration', adminController.resetStudentRegistration);
+router.post('/principals/:id/reset-registration', adminController.resetPrincipalRegistration);
 router.post('/reset-all-allocations', adminController.resetAllAllocations);
 router.post('/reset-evaluation', adminController.resetEvaluation);
 router.post('/bulk-reset-evaluation', adminController.bulkResetEvaluation);

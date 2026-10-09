@@ -29,6 +29,7 @@ exports.approvePrincipal = async (principalId, note) => {
   }
   principal.isApproved = true;
   principal.approvalStatus = 'APPROVED';
+  principal.previouslyApproved = true;
   await principal.save();
 
   // Send status email

@@ -304,6 +304,7 @@ exports.approveStudent = async (collegeId, studentId, note) => {
   
   student.isApproved = true;
   student.approvalStatus = 'APPROVED';
+  student.previouslyApproved = true;
   await student.save();
 
   // Send status email

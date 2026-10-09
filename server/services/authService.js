@@ -104,6 +104,12 @@ exports.login = async ({ regdNo, password, email, faceDescriptor, latitude, long
 
   // Check registration approval
   if (user.role === 'STUDENT' || user.role === 'PRINCIPAL') {
+    if (!user.isApproved && user.previouslyApproved) {
+      user.isApproved = true;
+      user.approvalStatus = 'APPROVED';
+      await user.save();
+    }
+
     if (!user.isApproved) {
       if (user.approvalStatus === 'REJECTED') {
         if (user.role === 'STUDENT') {
@@ -360,11 +366,18 @@ exports.setupAccount = async ({ regdNo, email, otp, password, role, collegeId, f
       const fileName = `${user._id}_${Date.now()}_profile.jpg`;
       user.profileImage = saveBase64Image(facePhoto, fileName);
     }
-    user.isApproved = false;
-    user.approvalStatus = 'PENDING';
+    // If user was already approved/registered earlier, restore approval directly without needing new approval
+    if (user.previouslyApproved) {
+      user.isApproved = true;
+      user.approvalStatus = 'APPROVED';
+    } else {
+      user.isApproved = false;
+      user.approvalStatus = 'PENDING';
+    }
   } else {
     user.isApproved = true;
     user.approvalStatus = 'APPROVED';
+    user.previouslyApproved = true;
   }
 
   user.password = password;

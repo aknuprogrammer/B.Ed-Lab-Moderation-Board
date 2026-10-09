@@ -159,7 +159,22 @@ const TAB_CONFIG = {
       { key: 'fullName', header: 'Full Name' },
       { key: 'regdNo', header: 'Email / Username' },
       { key: 'collegeCode', header: 'College Code' },
-      { key: 'collegeName', header: 'College Name', optional: true }
+      { key: 'collegeName', header: 'College Name', optional: true },
+      {
+        key: 'isSetupComplete',
+        header: 'Face Status',
+        hideInForm: true,
+        optional: true,
+        render: (val) => val ? (
+          <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-semibold rounded-full">
+            Registered
+          </span>
+        ) : (
+          <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 text-[11px] font-semibold rounded-full">
+            Pending Setup
+          </span>
+        )
+      },
     ]
   },
 };
@@ -907,23 +922,29 @@ const MasterData = () => {
     });
   };
 
-  const handleResetFaceRegistration = (student) => {
-    const studentName = student.fullName || student.regdNo;
+  const handleResetFaceRegistration = (userRecord, type = 'student') => {
+    const isPrincipal = type === 'principal';
+    const userName = userRecord.fullName || userRecord.regdNo;
+    const roleLabel = isPrincipal ? 'Principal' : 'Student';
+    const endpoint = isPrincipal
+      ? `${API}/principals/${userRecord._id}/reset-registration`
+      : `${API}/students/${userRecord._id}/reset-registration`;
+
     showConfirm({
-      title: 'Reset Face Registration',
-      message: `Are you sure you want to reset face registration for ${studentName} (${student.regdNo})?\n\nThe student's face data will be cleared and they can freshly register their face upon logging in.`,
+      title: `Reset ${roleLabel} Face Registration & Login`,
+      message: `Are you sure you want to reset face registration and login state for ${userName} (${userRecord.regdNo})?\n\nThis clears any active session locks and resets their face enrollment so the ${roleLabel.toLowerCase()} can freshly re-register and log in without needing third-party approval.`,
       variant: 'warning',
-      confirmText: 'Yes, Reset Face',
+      confirmText: 'Yes, Reset',
       onConfirm: async () => {
         try {
-          const res = await axios.post(`${API}/students/${student._id}/reset-registration`, {}, {
+          const res = await axios.post(endpoint, {}, {
             headers: { Authorization: `Bearer ${token}` }
           });
-          fetchTab('students', true);
+          fetchTab(isPrincipal ? 'principals' : 'students', true);
           setRefreshTrigger(prev => prev + 1);
-          showGlobalMessage(res.data.message || `Face registration reset for ${studentName}`);
+          showGlobalMessage(res.data.message || `Face registration reset for ${userName}`);
         } catch (err) {
-          showAlert('Reset Failed', err.response?.data?.message || 'Failed to reset student face registration', 'danger');
+          showAlert('Reset Failed', err.response?.data?.message || `Failed to reset ${roleLabel.toLowerCase()} face registration`, 'danger');
         }
       }
     });
@@ -1061,7 +1082,7 @@ const MasterData = () => {
       if (rowSem !== selectedSemesterFilter) return false;
     }
 
-    if (activeTab === 'students' && selectedStudentStatusFilter) {
+    if ((activeTab === 'students' || activeTab === 'principals') && selectedStudentStatusFilter) {
       if (selectedStudentStatusFilter === 'registered' && !row.isSetupComplete) return false;
       if (selectedStudentStatusFilter === 'pending' && row.isSetupComplete) return false;
     }
@@ -1128,7 +1149,10 @@ const MasterData = () => {
         {Object.entries(TAB_CONFIG).map(([id, t]) => (
           <button
             key={id}
-            onClick={() => setActiveTab(id)}
+            onClick={() => {
+              setActiveTab(id);
+              setSelectedStudentStatusFilter('');
+            }}
             className={`px-5 py-2.5 font-medium text-sm transition-colors border-b-2 cursor-pointer rounded-t-md ${activeTab === id
               ? 'border-teal-600 text-teal-700'
               : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
@@ -1204,8 +1228,8 @@ const MasterData = () => {
               </select>
             )}
 
-            {/* Students Face Registration Status Dropdown (Registered / Pending) */}
-            {activeTab === 'students' && (
+            {/* Face Registration Status Dropdown (Registered / Pending) */}
+            {(activeTab === 'students' || activeTab === 'principals') && (
               <select
                 value={selectedStudentStatusFilter}
                 onChange={(e) => {
@@ -1215,14 +1239,14 @@ const MasterData = () => {
                 className="w-full sm:w-auto pl-3 pr-8 py-1.5 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-white font-medium text-slate-700"
               >
                 {(() => {
-                  const semRows = selectedSemesterFilter
+                  const targetRows = (activeTab === 'students' && selectedSemesterFilter)
                     ? allRows.filter(r => r.currentSemester === selectedSemesterFilter)
                     : allRows;
-                  const regCount = semRows.filter(r => r.isSetupComplete).length;
-                  const pendCount = semRows.filter(r => !r.isSetupComplete).length;
+                  const regCount = targetRows.filter(r => r.isSetupComplete).length;
+                  const pendCount = targetRows.filter(r => !r.isSetupComplete).length;
                   return (
                     <>
-                      <option value="">All Status ({semRows.length})</option>
+                      <option value="">All Status ({targetRows.length})</option>
                       <option value="registered">Registered ({regCount})</option>
                       <option value="pending">Pending Setup ({pendCount})</option>
                     </>
@@ -1369,11 +1393,11 @@ const MasterData = () => {
                                 {isExpanded ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                               </button>
                             )}
-                            {activeTab === 'students' && (
+                            {(activeTab === 'students' || activeTab === 'principals') && (
                               <button
-                                onClick={() => handleResetFaceRegistration(row)}
+                                onClick={() => handleResetFaceRegistration(row, activeTab === 'principals' ? 'principal' : 'student')}
                                 className="text-amber-500 hover:text-amber-700 hover:bg-amber-50 transition-colors cursor-pointer p-1.5 rounded-md mr-1"
-                                title="Reset Face Registration"
+                                title={`Reset ${activeTab === 'principals' ? 'Principal' : 'Student'} Face Registration`}
                               >
                                 <RotateCcw className="h-4 w-4" />
                               </button>

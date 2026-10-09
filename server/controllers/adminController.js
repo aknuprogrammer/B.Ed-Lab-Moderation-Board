@@ -691,6 +691,26 @@ exports.resetStudentRegistration = async (req, res) => {
   }
 };
 
+exports.resetPrincipalRegistration = async (req, res) => {
+  try {
+    const result = await masterDataService.resetPrincipalRegistration(req.params.id);
+
+    activityLogService.logActivity({
+      userId: req.user._id,
+      userRole: req.user.role,
+      actionType: 'UPDATE_MASTER_DATA',
+      entityId: req.params.id,
+      entityType: 'User',
+      details: { description: `Reset face registration setup for principal ID: ${req.params.id}` }
+    }).catch(err => console.error("Activity logging failed:", err));
+
+    res.status(200).json(result);
+  } catch (error) {
+    const statusCode = error.statusCode || 500;
+    res.status(statusCode).json({ message: error.message });
+  }
+};
+
 exports.getMissingSuggestedMarksDetails = async (req, res) => {
   try {
     const { collegeId } = req.params;

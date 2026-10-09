@@ -780,15 +780,55 @@ exports.resetStudentRegistration = async (studentId) => {
     throw new AppError('Specified user is not a student.', 400);
   }
 
+  // Preserve previously approved status if they were ever approved or setup earlier
+  if (student.isApproved || student.approvalStatus === 'APPROVED' || student.isSetupComplete || student.previouslyApproved) {
+    student.previouslyApproved = true;
+  }
+
   student.faceDescriptor = [];
   student.profileImage = null;
   student.isSetupComplete = false;
   student.isApproved = false;
   student.approvalStatus = 'PENDING';
+  student.password = undefined;
+  student.currentSessionId = null;
+  student.tempOtp = undefined;
+  student.otpExpiresAt = undefined;
   await student.save();
 
   return {
-    message: `Face registration reset successfully for student ${student.fullName || student.regdNo} (${student.regdNo}). The student can now register freshly.`
+    message: `Face registration and login state reset successfully for student ${student.fullName || student.regdNo} (${student.regdNo}). The student can now register freshly.`
+  };
+};
+
+exports.resetPrincipalRegistration = async (principalId) => {
+  const principal = await User.findById(principalId);
+  if (!principal) {
+    throw new AppError('Principal record not found.', 404);
+  }
+
+  if (principal.role !== 'PRINCIPAL') {
+    throw new AppError('Specified user is not a principal.', 400);
+  }
+
+  // Preserve previously approved status if they were ever approved or setup earlier
+  if (principal.isApproved || principal.approvalStatus === 'APPROVED' || principal.isSetupComplete || principal.previouslyApproved) {
+    principal.previouslyApproved = true;
+  }
+
+  principal.faceDescriptor = [];
+  principal.profileImage = null;
+  principal.isSetupComplete = false;
+  principal.isApproved = false;
+  principal.approvalStatus = 'PENDING';
+  principal.password = undefined;
+  principal.currentSessionId = null;
+  principal.tempOtp = undefined;
+  principal.otpExpiresAt = undefined;
+  await principal.save();
+
+  return {
+    message: `Face registration and login state reset successfully for principal ${principal.fullName || principal.regdNo} (${principal.regdNo}). The principal can now register freshly.`
   };
 };
 
