@@ -188,11 +188,14 @@ exports.assignSubjects = async ({ studentIds, subjectIds, pagesRequired, academi
           evaluatorId = groupEvaluatorMap[assignedGroupName];
         }
 
+        const isObservationSub = (subject.subCode && (subject.subCode.includes('28A') || subject.subCode.includes('28B') || subject.subCode.includes('ORP'))) ||
+          (subject.subName && subject.subName.toLowerCase().includes('observation'));
+
         await Assignment.findOneAndUpdate(
           { studentId: student._id, subjectId: subject._id, mode: isBacklog ? 'Supply' : 'Regular' },
           {
             $set: {
-              pagesRequired,
+              pagesRequired: isObservationSub ? 26 : pagesRequired,
               academicYear: academicYear || student.academicYear || '',
               deadline,
               createdBy,

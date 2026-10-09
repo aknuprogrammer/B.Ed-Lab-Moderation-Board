@@ -407,12 +407,23 @@ function formatFooterDate() {
 }
 
 function formatSemester(sem) {
-  const s = String(sem || '').trim();
-  if (s === '1' || s.toUpperCase() === 'I' || s.toUpperCase() === 'SEMESTER I') return 'Semester I';
-  if (s === '2' || s.toUpperCase() === 'II' || s.toUpperCase() === 'SEMESTER II') return 'Semester II';
-  if (s === '3' || s.toUpperCase() === 'III' || s.toUpperCase() === 'SEMESTER III') return 'Semester III';
-  if (s === '4' || s.toUpperCase() === 'IV' || s.toUpperCase() === 'SEMESTER IV') return 'Semester IV';
+  const s = String(sem || '').trim().toUpperCase();
+  if (s === '1-1' || s === '1' || s === 'I' || s.includes('SEM 1') || s.includes('SEMESTER 1') || s.includes('SEMESTER I')) return 'Semester I';
+  if (s === '1-2' || s === '2' || s === 'II' || s.includes('SEM 2') || s.includes('SEMESTER 2') || s.includes('SEMESTER II')) return 'Semester II';
+  if (s === '2-1' || s === '3' || s === 'III' || s.includes('SEM 3') || s.includes('SEMESTER 3') || s.includes('SEMESTER III')) return 'Semester III';
+  if (s === '2-2' || s === '4' || s === 'IV' || s.includes('SEM 4') || s.includes('SEMESTER 4') || s.includes('SEMESTER IV')) return 'Semester IV';
   return s ? `Semester ${s}` : 'Semester II';
+}
+
+function getSemLevel(sem) {
+  if (!sem) return 2;
+  const s = String(sem).trim().toUpperCase();
+  if (s === '1-1' || s === '1' || s === 'I' || s.includes('SEM 1') || s.includes('SEMESTER 1') || s.includes('SEMESTER I')) return 1;
+  if (s === '1-2' || s === '2' || s === 'II' || s.includes('SEM 2') || s.includes('SEMESTER 2') || s.includes('SEMESTER II')) return 2;
+  if (s === '2-1' || s === '3' || s === 'III' || s.includes('SEM 3') || s.includes('SEMESTER 3') || s.includes('SEMESTER III')) return 3;
+  if (s === '2-2' || s === '4' || s === 'IV' || s.includes('SEM 4') || s.includes('SEMESTER 4') || s.includes('SEMESTER IV')) return 4;
+  const num = parseInt(s, 10);
+  return isNaN(num) ? 2 : num;
 }
 
 const BarcodePDF = ({ assignment, barcodeDataUrl, user }) => {
@@ -431,20 +442,39 @@ const BarcodePDF = ({ assignment, barcodeDataUrl, user }) => {
   // We rely entirely on barcodeDataUrl passed from the parent component
   let effectiveBarcodeUrl = barcodeDataUrl;
 
-  // Check if Pedagogy Subject in 2nd or 3rd Semester
-  const semStr = String(rawSem).trim().toUpperCase();
-  const is2ndOr3rdSem = semStr === '2' || semStr === '3' || semStr.includes('II') || semStr.includes('III') || semStr.includes('SEMESTER II') || semStr.includes('SEMESTER III');
+  // Check if Pedagogy / Observation Subject in 2nd or 3rd Semester
+  const semLevel = getSemLevel(rawSem);
+  const semStr = String(rawSem || '').trim().toUpperCase();
+  const is2ndOr3rdSem = semLevel === 2 || semLevel === 3 || 
+                        semStr === '2' || semStr === '3' || 
+                        semStr === '1-2' || semStr === '2-1' || 
+                        semStr.includes('II') || semStr.includes('III') || 
+                        semStr.includes('SEMESTER 2') || semStr.includes('SEMESTER 3');
   
-  const subNameLower = subjectName.toLowerCase();
+  const subCodeUpper = String(subjectCode || '').trim().toUpperCase();
+  const rawSubName = String(assignment.subjectId?.subName || '').toLowerCase();
+  const activeSubName = String(subjectName || '').toLowerCase();
+
+  // Explicitly identify Observation subjects (P-ED-28A, P-ED-28B, ORP-I, ORP-II, or "observation")
+  const isObservationSubject = subCodeUpper.includes('28A') || 
+                               subCodeUpper.includes('28B') || 
+                               subCodeUpper.includes('ORP') || 
+                               rawSubName.includes('observation') ||
+                               activeSubName.includes('observation');
+
   const isPedagogySubject = !!assignment.groupSubjectName || 
                             assignment.subjectId?.studentChoice === 'C' || 
                             assignment.subjectId?.studentChoice === 'c' ||
-                            subNameLower.includes('pedagogy');
+                            rawSubName.includes('pedagogy') ||
+                            activeSubName.includes('pedagogy') ||
+                            isObservationSubject;
 
-  const isPedagogy2ndOr3rdSem = is2ndOr3rdSem && isPedagogySubject;
+  // P-ED-28A and P-ED-28B always follow the Teaching Observation Report format,
+  // as well as any 2nd/3rd semester pedagogy/observation subject
+  const isTeachingObservationReport = isObservationSubject || (is2ndOr3rdSem && isPedagogySubject);
 
   const pagesCount = Math.max(1, Math.min(99, Math.floor(assignment.pagesRequired || 10)));
-  const totalPages = isPedagogy2ndOr3rdSem ? 26 : (pagesCount + 1);
+  const totalPages = isTeachingObservationReport ? 26 : (pagesCount + 1);
   const footerDate = formatFooterDate();
 
   const renderReportPage1 = (repIdx, pageNum) => (
@@ -739,7 +769,7 @@ const BarcodePDF = ({ assignment, barcodeDataUrl, user }) => {
 
   let continuationPages = [];
 
-  if (isPedagogy2ndOr3rdSem) {
+  if (isTeachingObservationReport) {
     // Render 5 Teaching Observation Reports (5 pages each = 25 pages)
     for (let rep = 0; rep < 5; rep++) {
       const basePage = 1 + rep * 5;

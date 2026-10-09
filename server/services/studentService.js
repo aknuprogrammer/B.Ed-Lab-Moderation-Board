@@ -53,8 +53,8 @@ exports.submitAssignment = async ({ assignmentId, file, user, note, extractedTex
   }
 
   const isGroupSubject = !!assignment.groupSubjectName;
-  const semester = String(assignment.subjectId?.semester);
-  const isEligibleFor5MB = isGroupSubject && (semester === '3' || semester === '4');
+  const semester = String(assignment.subjectId?.semester || '');
+  const isEligibleFor5MB = isGroupSubject || (assignment.pagesRequired && assignment.pagesRequired >= 25) || semester.includes('2') || semester.includes('3') || semester.includes('4');
   
   const MAX_SIZE = isEligibleFor5MB ? 5 * 1024 * 1024 : 3 * 1024 * 1024;
   

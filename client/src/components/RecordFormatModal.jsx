@@ -48,7 +48,7 @@ const RecordFormatModal = ({ isOpen, onClose }) => {
         groupSubjectName: subjectType === 'PEDAGOGY' ? subjectName : null,
         pagesRequired: 10,
         subjectId: {
-          subCode: subjectType === 'PEDAGOGY' ? 'BED201' : 'BED101',
+          subCode: subjectType === 'PEDAGOGY' ? 'P-ED-28A' : 'P-ED-10',
           subName: subjectType === 'PEDAGOGY' ? subjectName : 'PERSPECTIVES IN EDUCATION',
           semester: semester,
           studentChoice: subjectType === 'PEDAGOGY' ? 'C' : 'R'
