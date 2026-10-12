@@ -453,25 +453,14 @@ const BarcodePDF = ({ assignment, barcodeDataUrl, user }) => {
   
   const subCodeUpper = String(subjectCode || '').trim().toUpperCase();
   const rawSubName = String(assignment.subjectId?.subName || '').toLowerCase();
-  const activeSubName = String(subjectName || '').toLowerCase();
 
-  // Explicitly identify Observation subjects (P-ED-28A, P-ED-28B, ORP-I, ORP-II, or "observation")
-  const isObservationSubject = subCodeUpper.includes('28A') || 
-                               subCodeUpper.includes('28B') || 
-                               subCodeUpper.includes('ORP') || 
-                               rawSubName.includes('observation') ||
-                               activeSubName.includes('observation');
-
-  const isPedagogySubject = !!assignment.groupSubjectName || 
-                            assignment.subjectId?.studentChoice === 'C' || 
-                            assignment.subjectId?.studentChoice === 'c' ||
-                            rawSubName.includes('pedagogy') ||
-                            activeSubName.includes('pedagogy') ||
-                            isObservationSubject;
-
-  // P-ED-28A and P-ED-28B always follow the Teaching Observation Report format,
-  // as well as any 2nd/3rd semester pedagogy/observation subject
-  const isTeachingObservationReport = isObservationSubject || (is2ndOr3rdSem && isPedagogySubject);
+  // The 26-page Teaching Observation Report format applies EXCLUSIVELY to P-ED-28A and P-ED-28B
+  // (Observation Record of Pedagogy I & II / ORP-I & ORP-II).
+  // Other subjects (including Micro Teaching Records P-ED-27A, P-ED-27B, etc.) follow the standard blank format.
+  const isTeachingObservationReport = subCodeUpper.includes('28A') || 
+                                      subCodeUpper.includes('28B') || 
+                                      subCodeUpper.includes('ORP') || 
+                                      rawSubName.includes('observation record');
 
   const pagesCount = Math.max(1, Math.min(99, Math.floor(assignment.pagesRequired || 10)));
   const totalPages = isTeachingObservationReport ? 26 : (pagesCount + 1);

@@ -142,8 +142,8 @@ const RecordFormatModal = ({ isOpen, onClose }) => {
                 onChange={(e) => setSubjectType(e.target.value)}
                 className="px-3 py-1.5 border border-slate-300 rounded-md bg-white text-slate-800 font-medium focus:ring-2 focus:ring-teal-500 focus:outline-none"
               >
-                <option value="PEDAGOGY">Pedagogy Subject (26 Pages - Teaching Observation Report)</option>
-                <option value="REGULAR">Regular / Core Subject (Standard Blank Format)</option>
+                <option value="PEDAGOGY">Observation Records - P-ED-28A / 28B (26 Pages Teaching Observation Report)</option>
+                <option value="REGULAR">Regular / Micro Teaching / Other Records (Standard Format)</option>
               </select>
             </div>
 
