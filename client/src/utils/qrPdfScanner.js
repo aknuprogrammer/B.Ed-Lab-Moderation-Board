@@ -1,9 +1,17 @@
 import * as pdfjsLib from 'pdfjs-dist';
-import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import jsQR from 'jsqr';
 
-// Configure PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
+// Configure PDF.js worker:
+// Production Nginx servers often lack the .mjs MIME type mapping and serve .mjs as
+// 'application/octet-stream', triggering strict browser security blocks ("Failed to fetch dynamically imported module").
+// 1. We use a local worker copied with .js extension (/pdf.worker.min.js) so Nginx returns 'application/javascript'.
+// 2. We also provide a high-reliability CDN fallback (jsDelivr) if the local file is not reachable.
+const LOCAL_WORKER_URL = '/pdf.worker.min.js';
+const CDN_WORKER_URL = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.2.108/build/pdf.worker.min.mjs';
+
+if (typeof window !== 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = LOCAL_WORKER_URL;
+}
 
 /**
  * Normalizes a string by stripping punctuation, hyphens, and whitespace for fuzzy comparison.
@@ -138,8 +146,17 @@ export async function verifyPdfRecordQrCode(fileObj, assignment, user, onProgres
     if (onProgress) onProgress('Reading PDF document...');
 
     const arrayBuffer = await fileObj.arrayBuffer();
-    const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
-    const pdf = await loadingTask.promise;
+    let pdf;
+    try {
+      const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+      pdf = await loadingTask.promise;
+    } catch (workerErr) {
+      console.warn('Initial PDF loading with local worker failed, falling back to CDN worker:', workerErr);
+      // Fall back to jsDelivr CDN worker which serves with application/javascript and CORS headers
+      pdfjsLib.GlobalWorkerOptions.workerSrc = CDN_WORKER_URL;
+      const fallbackTask = pdfjsLib.getDocument({ data: arrayBuffer });
+      pdf = await fallbackTask.promise;
+    }
 
     if (!pdf.numPages || pdf.numPages < 1) {
       return { success: false, message: 'Invalid or empty PDF document.' };
