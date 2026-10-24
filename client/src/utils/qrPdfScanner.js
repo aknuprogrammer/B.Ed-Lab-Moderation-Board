@@ -1,5 +1,6 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import jsQR from 'jsqr';
+import { BrowserQRCodeReader } from '@zxing/library';
 
 // Configure PDF.js worker:
 // Production Nginx servers often lack the .mjs MIME type mapping and serve .mjs as
@@ -11,6 +12,32 @@ const CDN_WORKER_URL = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.2.108/build/pd
 
 if (typeof window !== 'undefined') {
   pdfjsLib.GlobalWorkerOptions.workerSrc = LOCAL_WORKER_URL;
+}
+
+// Reusable ZXing reader instance
+let zxingReader = null;
+function getZxingReader() {
+  if (!zxingReader && typeof window !== 'undefined') {
+    try {
+      zxingReader = new BrowserQRCodeReader();
+    } catch (err) {
+      console.warn('Failed to initialize BrowserQRCodeReader:', err);
+    }
+  }
+  return zxingReader;
+}
+
+// Reusable native BarcodeDetector instance (hardware/ML accelerated in Chrome, Edge, Android)
+let nativeBarcodeDetector = null;
+function getNativeBarcodeDetector() {
+  if (!nativeBarcodeDetector && typeof window !== 'undefined' && 'BarcodeDetector' in window) {
+    try {
+      nativeBarcodeDetector = new window.BarcodeDetector({ formats: ['qr_code'] });
+    } catch (err) {
+      console.warn('Native BarcodeDetector not supported:', err);
+    }
+  }
+  return nativeBarcodeDetector;
 }
 
 /**
@@ -51,67 +78,375 @@ export function parseQrPayload(qrText) {
   return { rollNumber, subjectPart, semester, raw };
 }
 
+/* ==========================================================================
+   IMAGE ENHANCEMENT & PREPROCESSING PIPELINE
+   Designed specifically for dark, low-contrast, or 11zon-compressed scans.
+   ========================================================================== */
+
 /**
- * Scans an ImageData buffer for a QR Code using jsQR.
+ * Auto-levels (contrast stretch) + Gamma correction (shadow brightening).
+ * Lifts dark, underexposed paper scans so dark grey QR modules become black
+ * and grey/yellowish paper becomes crisp white.
  */
-function scanImageData(imageData) {
-  if (!imageData || !imageData.data || imageData.width === 0 || imageData.height === 0) {
+function createEnhancedImageData(imageData, { gamma = 0.58, contrastBoost = 1.35 } = {}) {
+  const data = imageData.data;
+  const len = data.length;
+  const out = new Uint8ClampedArray(len);
+
+  // Compute approximate min & max luminance across the image
+  let minLum = 255;
+  let maxLum = 0;
+
+  for (let i = 0; i < len; i += 16) {
+    const lum = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+    if (lum < minLum) minLum = lum;
+    if (lum > maxLum) maxLum = lum;
+  }
+
+  if (maxLum - minLum < 20) {
+    minLum = Math.max(0, minLum - 25);
+    maxLum = Math.min(255, maxLum + 25);
+  }
+
+  const range = (maxLum - minLum) || 1;
+
+  // Build 256-entry lookup table for ultra-fast processing
+  const lut = new Uint8Array(256);
+  for (let v = 0; v < 256; v++) {
+    let norm = (v - minLum) / range;
+    if (norm < 0) norm = 0;
+    if (norm > 1) norm = 1;
+
+    // Gamma correction: norm^gamma brightens midtones & dark shadows
+    let boosted = Math.pow(norm, gamma);
+
+    // Contrast boost centered around 0.5
+    if (contrastBoost !== 1.0) {
+      boosted = (boosted - 0.5) * contrastBoost + 0.5;
+      if (boosted < 0) boosted = 0;
+      if (boosted > 1) boosted = 1;
+    }
+
+    lut[v] = Math.round(boosted * 255);
+  }
+
+  for (let i = 0; i < len; i += 4) {
+    const lum = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+    const enhanced = lut[lum];
+    out[i] = enhanced;
+    out[i + 1] = enhanced;
+    out[i + 2] = enhanced;
+    out[i + 3] = data[i + 3];
+  }
+
+  return new ImageData(out, imageData.width, imageData.height);
+}
+
+/**
+ * Otsu's optimal thresholding binarization (pure black & white).
+ * Perfect when uneven shadows or lighting gradients cause standard decoders to fail.
+ */
+function createThresholdedImageData(imageData) {
+  const data = imageData.data;
+  const len = data.length;
+  const out = new Uint8ClampedArray(len);
+  const totalPixels = len / 4;
+
+  const hist = new Int32Array(256);
+  for (let i = 0; i < len; i += 4) {
+    const lum = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+    hist[lum]++;
+  }
+
+  let sum = 0;
+  for (let i = 0; i < 256; i++) sum += i * hist[i];
+
+  let sumB = 0;
+  let wB = 0;
+  let varMax = 0;
+  let threshold = 128;
+
+  for (let t = 0; t < 256; t++) {
+    wB += hist[t];
+    if (wB === 0) continue;
+    const wF = totalPixels - wB;
+    if (wF === 0) break;
+
+    sumB += t * hist[t];
+    const mB = sumB / wB;
+    const mF = (sum - sumB) / wF;
+
+    const varBetween = wB * wF * (mB - mF) * (mB - mF);
+    if (varBetween > varMax) {
+      varMax = varBetween;
+      threshold = t;
+    }
+  }
+
+  for (let i = 0; i < len; i += 4) {
+    const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    const val = lum >= threshold ? 255 : 0;
+    out[i] = val;
+    out[i + 1] = val;
+    out[i + 2] = val;
+    out[i + 3] = 255;
+  }
+
+  return new ImageData(out, imageData.width, imageData.height);
+}
+
+/**
+ * 3x3 Sharpening filter to restore edge definition on compressed PDFs (e.g. 11zon / CamScanner).
+ */
+function createSharpenedImageData(imageData) {
+  const w = imageData.width;
+  const h = imageData.height;
+  const src = imageData.data;
+  const out = new Uint8ClampedArray(src.length);
+
+  for (let i = 3; i < src.length; i += 4) out[i] = src[i];
+
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const idx = (y * w + x) * 4;
+      for (let c = 0; c < 3; c++) {
+        const val = 5 * src[idx + c]
+          - src[((y - 1) * w + x) * 4 + c]
+          - src[((y + 1) * w + x) * 4 + c]
+          - src[(y * w + (x - 1)) * 4 + c]
+          - src[(y * w + (x + 1)) * 4 + c];
+        out[idx + c] = val < 0 ? 0 : (val > 255 ? 255 : val);
+      }
+    }
+  }
+
+  return new ImageData(out, w, h);
+}
+
+/**
+ * Converts ImageData to an HTMLCanvasElement so canvas-based engines (ZXing, BarcodeDetector) can read it.
+ */
+function imageDataToCanvas(imgData) {
+  const canvas = document.createElement('canvas');
+  canvas.width = imgData.width;
+  canvas.height = imgData.height;
+  const ctx = canvas.getContext('2d');
+  ctx.putImageData(imgData, 0, 0);
+  return canvas;
+}
+
+/**
+ * Scans an ImageData buffer using jsQR with inverted attempts.
+ */
+function scanImageDataWithJsQR(imageData) {
+  if (!imageData || !imageData.data || imageData.width < 10 || imageData.height < 10) {
     return null;
   }
   try {
-    return jsQR(imageData.data, imageData.width, imageData.height, {
+    const code = jsQR(imageData.data, imageData.width, imageData.height, {
       inversionAttempts: 'attemptBoth'
     });
+    if (code && code.data && code.data.trim()) {
+      return code.data.trim();
+    }
   } catch (err) {
-    console.warn('jsQR scan error:', err);
+    // Ignore and continue
+  }
+  return null;
+}
+
+/**
+ * Scans a canvas element using native BarcodeDetector (Chrome/Edge/Android).
+ */
+async function scanWithNativeBarcodeDetector(canvas) {
+  const detector = getNativeBarcodeDetector();
+  if (!detector || !canvas) return null;
+  try {
+    const barcodes = await detector.detect(canvas);
+    if (barcodes && barcodes.length > 0) {
+      for (const b of barcodes) {
+        if (b.rawValue && b.rawValue.trim()) {
+          return b.rawValue.trim();
+        }
+      }
+    }
+  } catch (err) {
+    // Ignore and fallback
+  }
+  return null;
+}
+
+/**
+ * Scans a canvas element using @zxing/library BrowserQRCodeReader.
+ */
+function scanWithZxing(canvas) {
+  const reader = getZxingReader();
+  if (!reader || !canvas) return null;
+  try {
+    const result = reader.decode(canvas);
+    if (result) {
+      const text = typeof result.getText === 'function' ? result.getText() : (result.text || '');
+      if (text && text.trim()) {
+        return text.trim();
+      }
+    }
+  } catch (err) {
+    // Expected NotFoundException when no QR on this region
+  }
+  return null;
+}
+
+/**
+ * Decodes a cropped region or canvas using multi-engine + multi-pass enhancement.
+ * Sequence:
+ *   1. Native BarcodeDetector on original canvas
+ *   2. jsQR on original ImageData
+ *   3. ZXing on original canvas
+ *   4. Brightness & Contrast Enhanced pass (Gamma boost + Auto-levels) -> jsQR, BarcodeDetector, ZXing
+ *   5. Otsu Binarization (Pure B&W) -> jsQR
+ *   6. Sharpened + Brightened pass -> jsQR
+ */
+async function decodeRegionMultiEngine(regionCanvas, regionCtx) {
+  if (!regionCanvas || regionCanvas.width < 10 || regionCanvas.height < 10) {
     return null;
   }
+
+  // Pass 1: Native BarcodeDetector (fastest and best low-light recognition)
+  let codeText = await scanWithNativeBarcodeDetector(regionCanvas);
+  if (codeText) return codeText;
+
+  const rawImg = regionCtx.getImageData(0, 0, regionCanvas.width, regionCanvas.height);
+
+  // Pass 2: jsQR on raw ImageData
+  codeText = scanImageDataWithJsQR(rawImg);
+  if (codeText) return codeText;
+
+  // Pass 3: ZXing HybridBinarizer on raw canvas
+  codeText = scanWithZxing(regionCanvas);
+  if (codeText) return codeText;
+
+  // Pass 4: Brightness Boost + Dynamic Contrast Stretching (solves dark & underexposed scans)
+  const enhancedImg = createEnhancedImageData(rawImg, { gamma: 0.55, contrastBoost: 1.4 });
+  codeText = scanImageDataWithJsQR(enhancedImg);
+  if (codeText) return codeText;
+
+  const enhancedCanvas = imageDataToCanvas(enhancedImg);
+  codeText = await scanWithNativeBarcodeDetector(enhancedCanvas);
+  if (codeText) return codeText;
+
+  codeText = scanWithZxing(enhancedCanvas);
+  if (codeText) return codeText;
+
+  // Pass 5: Otsu Adaptive Binarization (solves uneven shadows & grey background)
+  const binarizedImg = createThresholdedImageData(rawImg);
+  codeText = scanImageDataWithJsQR(binarizedImg);
+  if (codeText) return codeText;
+
+  // Pass 6: Sharpening (solves 11zon / JPEG compression blur)
+  const sharpImg = createSharpenedImageData(rawImg);
+  codeText = scanImageDataWithJsQR(sharpImg);
+  if (codeText) return codeText;
+
+  const sharpEnhanced = createEnhancedImageData(sharpImg, { gamma: 0.55, contrastBoost: 1.45 });
+  codeText = scanImageDataWithJsQR(sharpEnhanced);
+  if (codeText) return codeText;
+
+  return null;
+}
+
+/**
+ * Extracts a region from the main canvas and tests it through the decoding pipeline.
+ */
+async function testCanvasRegion(canvas, context, x, y, width, height) {
+  if (width < 20 || height < 20) return null;
+  const subCanvas = document.createElement('canvas');
+  subCanvas.width = width;
+  subCanvas.height = height;
+  const subCtx = subCanvas.getContext('2d', { willReadFrequently: true });
+  subCtx.drawImage(canvas, x, y, width, height, 0, 0, width, height);
+  return await decodeRegionMultiEngine(subCanvas, subCtx);
+}
+
+/**
+ * Rotates a canvas by 90 degrees clockwise for scans uploaded in landscape/sideways orientation.
+ */
+function rotateCanvas90(canvas) {
+  const rot = document.createElement('canvas');
+  rot.width = canvas.height;
+  rot.height = canvas.width;
+  const ctx = rot.getContext('2d', { willReadFrequently: true });
+  ctx.translate(rot.width / 2, rot.height / 2);
+  ctx.rotate(Math.PI / 2);
+  ctx.drawImage(canvas, -canvas.width / 2, -canvas.height / 2);
+  return rot;
 }
 
 /**
  * Extracts and decodes QR codes from a rendered HTML Canvas.
- * Tries multiple region crops to maximize detection on scanned paper documents:
- * 1. Full canvas
- * 2. Bottom 40% (where the barcode/QR is located on all generated sheets)
- * 3. Bottom-right quadrant (exact placement of the QR code in BarcodePDF)
- * 4. Top 40% (in case student scanned the page inverted/upside down)
+ * Tries multiple region crops and image enhancements:
+ * 1. Bottom 45% (where the barcode/QR is located on all generated sheets)
+ * 2. Bottom-right quadrant (exact placement of the QR code in BarcodePDF)
+ * 3. Bottom-left quadrant
+ * 4. Full canvas
+ * 5. Top 45% (in case student scanned the page inverted/upside down)
+ * 6. 90-degree rotated canvas (in case student scanned sideways)
  */
-function findQrOnCanvas(canvas, context) {
+async function findQrOnCanvas(canvas, context) {
   const width = canvas.width;
   const height = canvas.height;
 
-  // 1. Try full canvas
-  const fullImg = context.getImageData(0, 0, width, height);
-  let code = scanImageData(fullImg);
-  if (code && code.data) return code;
+  // 1. Try bottom-right quadrant (highest likelihood - exact placement in footer)
+  const brX = Math.floor(width * 0.40);
+  const brY = Math.floor(height * 0.55);
+  const brW = width - brX;
+  const brH = height - brY;
+  let codeText = await testCanvasRegion(canvas, context, brX, brY, brW, brH);
+  if (codeText) return codeText;
 
-  // 2. Try bottom 40%
-  const bottomY = Math.floor(height * 0.60);
+  // 2. Try bottom 45% band
+  const bottomY = Math.floor(height * 0.55);
   const bottomH = height - bottomY;
-  if (bottomH > 20) {
-    const bottomImg = context.getImageData(0, bottomY, width, bottomH);
-    code = scanImageData(bottomImg);
-    if (code && code.data) return code;
-  }
+  codeText = await testCanvasRegion(canvas, context, 0, bottomY, width, bottomH);
+  if (codeText) return codeText;
 
-  // 3. Try bottom-right quadrant
-  const rightX = Math.floor(width * 0.40);
-  const rightW = width - rightX;
-  if (rightW > 20 && bottomH > 20) {
-    const brImg = context.getImageData(rightX, bottomY, rightW, bottomH);
-    code = scanImageData(brImg);
-    if (code && code.data) return code;
-  }
+  // 3. Try full canvas
+  codeText = await decodeRegionMultiEngine(canvas, context);
+  if (codeText) return codeText;
 
-  // 4. Try top 40% (inverted scan fallback)
-  const topH = Math.floor(height * 0.40);
-  if (topH > 20) {
-    const topImg = context.getImageData(0, 0, width, topH);
-    code = scanImageData(topImg);
-    if (code && code.data) return code;
+  // 4. Try bottom-left quadrant (for alternate layouts)
+  const blW = Math.floor(width * 0.60);
+  codeText = await testCanvasRegion(canvas, context, 0, bottomY, blW, bottomH);
+  if (codeText) return codeText;
+
+  // 5. Try top 45% (upside down / inverted scan)
+  const topH = Math.floor(height * 0.45);
+  codeText = await testCanvasRegion(canvas, context, 0, 0, width, topH);
+  if (codeText) return codeText;
+
+  // 6. Try 90-degree rotated canvas (sideways/landscape scan)
+  try {
+    const rotCanvas = rotateCanvas90(canvas);
+    const rotCtx = rotCanvas.getContext('2d', { willReadFrequently: true });
+    codeText = await decodeRegionMultiEngine(rotCanvas, rotCtx);
+    if (codeText) return codeText;
+  } catch (err) {
+    // Rotation fallback failed, continue
   }
 
   return null;
+}
+
+/**
+ * Renders a PDF page to a canvas at a specific scale.
+ */
+async function renderPageToCanvas(page, scale) {
+  const viewport = page.getViewport({ scale });
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.floor(viewport.width);
+  canvas.height = Math.floor(viewport.height);
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  await page.render({ canvasContext: context, viewport }).promise;
+  return { canvas, context };
 }
 
 /**
@@ -152,7 +487,6 @@ export async function verifyPdfRecordQrCode(fileObj, assignment, user, onProgres
       pdf = await loadingTask.promise;
     } catch (workerErr) {
       console.warn('Initial PDF loading with local worker failed, falling back to CDN worker:', workerErr);
-      // Fall back to jsDelivr CDN worker which serves with application/javascript and CORS headers
       pdfjsLib.GlobalWorkerOptions.workerSrc = CDN_WORKER_URL;
       const fallbackTask = pdfjsLib.getDocument({ data: arrayBuffer });
       pdf = await fallbackTask.promise;
@@ -162,79 +496,102 @@ export async function verifyPdfRecordQrCode(fileObj, assignment, user, onProgres
       return { success: false, message: 'Invalid or empty PDF document.' };
     }
 
-    // "no need to scan total pages just scan first 5 pages along with certificate page"
     const maxPagesToScan = Math.min(5, pdf.numPages);
     let detectedQrCodes = [];
 
+    // Helper validator
+    const validateDetectedQr = (qrRaw, pageNum) => {
+      const parsed = parseQrPayload(qrRaw);
+      const normQR = normalize(qrRaw);
+      const normDetectedRoll = normalize(parsed.rollNumber);
+
+      // Check 1: Student Roll Number Check
+      let rollMatches = false;
+      if (normExpectedRoll) {
+        if (normDetectedRoll === normExpectedRoll || normQR.includes(normExpectedRoll)) {
+          rollMatches = true;
+        }
+      } else {
+        rollMatches = true;
+      }
+
+      if (!rollMatches) {
+        return {
+          valid: false,
+          error: `Student Roll Number Mismatch (Page ${pageNum}): The uploaded record contains QR Code for student '${parsed.rollNumber || qrRaw}', but your Roll Number is '${expectedRoll}'. You cannot upload another student's record.`
+        };
+      }
+
+      // Check 2: Subject Code Check
+      let subjectMatches = false;
+      const normDetectedSub = normalize(parsed.subjectPart);
+
+      if (normExpectedSubCode && (normDetectedSub === normExpectedSubCode || normDetectedSub.includes(normExpectedSubCode) || normExpectedSubCode.includes(normDetectedSub))) {
+        subjectMatches = true;
+      }
+      if (normExpectedGroup && (normDetectedSub === normExpectedGroup || normDetectedSub.includes(normExpectedGroup) || normExpectedGroup.includes(normDetectedSub))) {
+        subjectMatches = true;
+      }
+      if (!subjectMatches) {
+        if (normExpectedSubCode && normQR.includes(normExpectedSubCode)) subjectMatches = true;
+        if (normExpectedGroup && normQR.includes(normExpectedGroup)) subjectMatches = true;
+      }
+
+      if (!subjectMatches) {
+        const displayDetected = parsed.subjectPart || qrRaw;
+        const displayExpected = expectedGroupName ? `${expectedGroupName} (${expectedSubCode})` : (expectedSubCode ? `${expectedSubCode} - ${expectedSubName}` : expectedSubName);
+        return {
+          valid: false,
+          error: `Subject Mismatch (Page ${pageNum}): You are uploading for '${displayExpected}', but the document QR Code belongs to subject '${displayDetected}'. Please select the correct record for this subject.`
+        };
+      }
+
+      return { valid: true, parsed };
+    };
+
+    // Primary Pass: Scan pages 1 to 5 at standard high-resolution (scale 1.85)
     for (let pageNum = 1; pageNum <= maxPagesToScan; pageNum++) {
       if (onProgress) {
         onProgress(`Scanning Page ${pageNum} of ${maxPagesToScan} for QR Code...`);
       }
 
       const page = await pdf.getPage(pageNum);
-      // Scale 1.75 provides crisp resolution without excessive memory
-      const viewport = page.getViewport({ scale: 1.75 });
+      const { canvas, context } = await renderPageToCanvas(page, 1.85);
+      const qrRaw = await findQrOnCanvas(canvas, context);
 
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.floor(viewport.width);
-      canvas.height = Math.floor(viewport.height);
+      if (qrRaw) {
+        const check = validateDetectedQr(qrRaw, pageNum);
+        if (!check.valid) {
+          return { success: false, message: check.error };
+        }
 
-      const context = canvas.getContext('2d', { willReadFrequently: true });
-      await page.render({ canvasContext: context, viewport }).promise;
+        detectedQrCodes.push({ pageNum, parsed: check.parsed, qrRaw });
+        // Valid QR found and verified matching student and subject -> immediate success!
+        break;
+      }
+    }
 
-      const code = findQrOnCanvas(canvas, context);
+    // Secondary Pass: If not detected yet, perform an Intensive High-DPI Scan (scale 2.6) on Page 1
+    // (The Certificate page is almost always Page 1 and high-DPI resolves compressed/blurry QR modules)
+    if (detectedQrCodes.length === 0 && pdf.numPages >= 1) {
+      if (onProgress) {
+        onProgress('Performing deep scan with brightness enhancement on Certificate page...');
+      }
 
-      if (code && code.data && code.data.trim()) {
-        const qrRaw = code.data.trim();
-        const parsed = parseQrPayload(qrRaw);
-        detectedQrCodes.push({ pageNum, parsed, qrRaw });
+      try {
+        const page1 = await pdf.getPage(1);
+        const { canvas, context } = await renderPageToCanvas(page1, 2.6);
+        const qrRaw = await findQrOnCanvas(canvas, context);
 
-        // 1. MAJOR CHECK 1: Student Roll Number Check
-        const normQR = normalize(qrRaw);
-        const normDetectedRoll = normalize(parsed.rollNumber);
-
-        let rollMatches = false;
-        if (normExpectedRoll) {
-          if (normDetectedRoll === normExpectedRoll || normQR.includes(normExpectedRoll)) {
-            rollMatches = true;
+        if (qrRaw) {
+          const check = validateDetectedQr(qrRaw, 1);
+          if (!check.valid) {
+            return { success: false, message: check.error };
           }
-        } else {
-          // If no expected roll available, pass through
-          rollMatches = true;
+          detectedQrCodes.push({ pageNum: 1, parsed: check.parsed, qrRaw });
         }
-
-        if (!rollMatches) {
-          return {
-            success: false,
-            message: `Student Roll Number Mismatch (Page ${pageNum}): The uploaded record contains QR Code for student '${parsed.rollNumber || qrRaw}', but your Roll Number is '${expectedRoll}'. You cannot upload another student's record.`
-          };
-        }
-
-        // 2. MAJOR CHECK 2: Subject Code Check
-        let subjectMatches = false;
-        const normDetectedSub = normalize(parsed.subjectPart);
-
-        if (normExpectedSubCode && (normDetectedSub === normExpectedSubCode || normDetectedSub.includes(normExpectedSubCode) || normExpectedSubCode.includes(normDetectedSub))) {
-          subjectMatches = true;
-        }
-        if (normExpectedGroup && (normDetectedSub === normExpectedGroup || normDetectedSub.includes(normExpectedGroup) || normExpectedGroup.includes(normDetectedSub))) {
-          subjectMatches = true;
-        }
-
-        // Additional fallback: check if raw QR contains the normalized expected sub code or group name
-        if (!subjectMatches) {
-          if (normExpectedSubCode && normQR.includes(normExpectedSubCode)) subjectMatches = true;
-          if (normExpectedGroup && normQR.includes(normExpectedGroup)) subjectMatches = true;
-        }
-
-        if (!subjectMatches) {
-          const displayDetected = parsed.subjectPart || qrRaw;
-          const displayExpected = expectedGroupName ? `${expectedGroupName} (${expectedSubCode})` : (expectedSubCode ? `${expectedSubCode} - ${expectedSubName}` : expectedSubName);
-          return {
-            success: false,
-            message: `Subject Mismatch (Page ${pageNum}): You are uploading for '${displayExpected}', but the document QR Code belongs to subject '${displayDetected}'. Please select the correct record for this subject.`
-          };
-        }
+      } catch (deepErr) {
+        console.warn('Deep scan attempt encountered an issue:', deepErr);
       }
     }
 
@@ -242,7 +599,11 @@ export async function verifyPdfRecordQrCode(fileObj, assignment, user, onProgres
     if (detectedQrCodes.length === 0) {
       return {
         success: false,
-        message: `No QR Code detected in the first ${maxPagesToScan} pages (including Certificate page). Please ensure you have included the official Barcode / Certificate page generated from this portal and that the QR code is clearly visible and not cut off.`
+        message: `No QR Code detected in the first ${maxPagesToScan} pages (including Certificate page).\n\n` +
+          `Possible causes & solutions:\n` +
+          `1. Dark / Low Lighting: The scanned Certificate page may be too dark or shadowed. Re-scan in good light using 'Document / B&W' mode on your scanner app.\n` +
+          `2. Extreme Compression: If you compressed this PDF (e.g. using 11zon or CamScanner), the QR code may have become blurred. Try 'Medium' compression instead of high compression.\n` +
+          `3. Missing Cover Page: Ensure you included the official Barcode / Certificate cover page generated from this portal as Page 1.`
       };
     }
 

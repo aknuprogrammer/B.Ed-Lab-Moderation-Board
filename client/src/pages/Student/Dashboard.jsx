@@ -392,6 +392,9 @@ const UploadRecordModal = ({ assignment, onClose, onSuccess }) => {
                 })()}
               </div>
             </div>
+            <p className="text-[11px] text-slate-500 mt-1.5 flex items-center gap-1">
+              <span className="font-semibold text-teal-700">Tip:</span> Ensure Page 1 (Certificate) is clear and well-lit. Avoid extreme compression so the QR code remains readable.
+            </p>
           </div>
 
           {file && (
