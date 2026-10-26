@@ -157,6 +157,7 @@ const Overview = () => {
   const totalRecords = stats?.totalRecords ?? 0;
   const totalRecordsSubmitted = stats?.totalRecordsSubmitted ?? 0;
   const totalRecordsPending = stats?.totalRecordsPending ?? 0;
+  const totalRecordsAbsent = stats?.totalRecordsAbsent ?? 0;
 
   // Calculate percentages
   const principalRegPct = totalPrincipals > 0 ? Math.round((totalPrincipalsRegistered / totalPrincipals) * 100) : 0;
@@ -372,7 +373,10 @@ const Overview = () => {
             </div>
             <div>
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Pending Records</p>
-              <p className="text-2xl font-bold text-slate-900 mt-1">{loading ? '-' : totalRecordsPending}</p>
+              <div className="flex items-baseline gap-2 mt-1">
+                <p className="text-2xl font-bold text-slate-900">{loading ? '-' : totalRecordsPending}</p>
+                
+              </div>
             </div>
           </div>
         </div>

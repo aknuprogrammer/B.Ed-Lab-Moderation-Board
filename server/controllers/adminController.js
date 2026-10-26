@@ -661,6 +661,31 @@ exports.bulkUpdateAssignmentDeadlines = async (req, res) => {
   }
 };
 
+exports.revertMissedDeadlines = async (req, res) => {
+  try {
+    const { newDeadline, collegeId, semester } = req.body;
+    const result = await masterDataService.revertMissedDeadlines({
+      newDeadline,
+      collegeId,
+      semester
+    });
+
+    activityLogService.logActivity({
+      userId: req.user._id,
+      userRole: req.user.role,
+      actionType: 'EXTEND_DEADLINE',
+      details: {
+        type: 'assignments',
+        description: `Restored ${result.modifiedCount} auto-absent assignments back to Pending`
+      }
+    }).catch(err => console.error("Activity logging failed:", err));
+
+    res.json(result);
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ message: error.message });
+  }
+};
+
 exports.getDashboardStats = async (req, res) => {
   try {
     const { collegeId, semester } = req.query;

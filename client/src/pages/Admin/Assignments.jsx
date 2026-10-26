@@ -206,7 +206,7 @@ const AssignmentTable = ({
                   <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
                     <div className="flex items-center gap-2">
                       {new Date(assignment.deadline).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-                      {onEditDeadline && assignment.status === 'Pending' && (
+                      {onEditDeadline && (assignment.status === 'Pending' || assignment.isAbsent) && (
                         <button
                           onClick={() => onEditDeadline(assignment)}
                           className="text-slate-400 hover:text-teal-600 transition-colors cursor-pointer p-1"
@@ -224,7 +224,7 @@ const AssignmentTable = ({
                       ) : (
                         <span className="text-slate-400 italic text-xs">Not Set</span>
                       )}
-                      {onEditSuggestedDeadline && assignment.status === 'Pending' && (
+                      {onEditSuggestedDeadline && (assignment.status === 'Pending' || assignment.isAbsent) && (
                         <button
                           onClick={() => onEditSuggestedDeadline(assignment)}
                           className="text-slate-400 hover:text-teal-600 transition-colors cursor-pointer p-1"
@@ -246,14 +246,44 @@ const AssignmentTable = ({
                   </td>
                   <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap text-sm">
                     <div className="flex flex-col gap-1 items-start">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold
-                        ${assignment.status === 'Evaluated' ? 'bg-green-100 text-green-800' :
-                          assignment.status === 'Submitted' ? 'bg-blue-100 text-blue-800' : 'bg-yellow-100 text-yellow-800'}
-                      `}>
-                        {assignment.status}
-                      </span>
-                      {assignment.studentNote && (
-                        <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200 truncate max-w-[100px]" title={assignment.studentNote}>
+                      {(() => {
+                        const isSubmitted = !!assignment.filePath || assignment.status === 'Submitted' || (assignment.status === 'Evaluated' && !assignment.isAbsent);
+                        let isDeadlinePassed = false;
+                        if (assignment.deadline) {
+                          const d = new Date(assignment.deadline);
+                          d.setHours(23, 59, 59, 999);
+                          isDeadlinePassed = new Date() > d;
+                        }
+
+                        if (assignment.status === 'Evaluated' && !assignment.isAbsent) {
+                          return (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800">
+                              Evaluated
+                            </span>
+                          );
+                        }
+                        if (assignment.status === 'Submitted' || isSubmitted) {
+                          return (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
+                              Submitted
+                            </span>
+                          );
+                        }
+                        // if (isDeadlinePassed || assignment.isAbsent) {
+                        //   return (
+                        //     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200">
+                        //       Submission Deadline Completed
+                        //     </span>
+                        //   );
+                        // }
+                        return (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">
+                            Pending
+                          </span>
+                        );
+                      })()}
+                      {assignment.studentNote && !assignment.studentNote.toLowerCase().includes('absent') && !assignment.studentNote.toLowerCase().includes('missed') && (
+                        <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200 truncate max-w-[120px]" title={assignment.studentNote}>
                           Has Note
                         </span>
                       )}
@@ -336,7 +366,7 @@ const Assignments = () => {
   const [pagesRequired, setPagesRequired] = useState(30);
   const [deadline, setDeadline] = useState('');
   const [suggestedMarksDeadline, setSuggestedMarksDeadline] = useState('');
-  
+
   const [selectedAssignmentIds, setSelectedAssignmentIds] = useState([]);
   const [bulkSubmissionDeadline, setBulkSubmissionDeadline] = useState('');
   const [bulkSuggestedDeadline, setBulkSuggestedDeadline] = useState('');
@@ -545,7 +575,7 @@ const Assignments = () => {
   const handleSelectAllStudents = () => {
     const visibleSelectableStudents = filteredStudents.filter(s => !fullyAssignedStudentsSet.has(s._id.toString()));
     const visibleSelectableIds = visibleSelectableStudents.map(s => s._id);
-    const allVisibleSelectableSelected = visibleSelectableIds.length > 0 && 
+    const allVisibleSelectableSelected = visibleSelectableIds.length > 0 &&
       visibleSelectableIds.every(id => selectedStudents.includes(id));
 
     if (allVisibleSelectableSelected) {
@@ -766,7 +796,7 @@ const Assignments = () => {
         await axios.put(`${API_BASE_URL}/api/admin/assignments/bulk-deadline`, payload, {
           headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
         });
-        
+
         if (totalCount > BATCH_SIZE) {
           const processed = Math.min(i + BATCH_SIZE, totalCount);
           setMessage(`Updating deadlines... (${processed} / ${totalCount})`);
@@ -997,15 +1027,14 @@ const Assignments = () => {
                     const isPartiallyAssigned = count > 0 && !isFullyAssigned;
 
                     return (
-                      <label 
-                        key={student._id} 
-                        className={`flex items-center p-3 border rounded-md transition-colors ${
-                          isFullyAssigned 
-                            ? 'border-slate-100 bg-slate-50/50 cursor-not-allowed opacity-60' 
-                            : selectedStudents.includes(student._id) 
-                              ? 'border-teal-500 bg-teal-50 cursor-pointer' 
+                      <label
+                        key={student._id}
+                        className={`flex items-center p-3 border rounded-md transition-colors ${isFullyAssigned
+                            ? 'border-slate-100 bg-slate-50/50 cursor-not-allowed opacity-60'
+                            : selectedStudents.includes(student._id)
+                              ? 'border-teal-500 bg-teal-50 cursor-pointer'
                               : 'border-slate-200 hover:bg-slate-50 cursor-pointer'
-                        }`}
+                          }`}
                       >
                         <input
                           type="checkbox"

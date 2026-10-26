@@ -43,6 +43,7 @@ router.get('/evaluation-report', adminController.getEvaluationReport);
 router.get('/download-bulk-zip', adminController.downloadBulkRecordsZip);
 router.post('/purge-records', adminController.purgeAssignmentRecords);
 router.put('/assignments/bulk-deadline', adminController.bulkUpdateAssignmentDeadlines);
+router.post('/assignments/revert-missed-deadlines', adminController.revertMissedDeadlines);
 router.post('/evaluators', adminController.createEvaluator);
 router.post('/evaluators/:id/subjects', adminController.assignSubjectsToEvaluator);
 router.post('/assign-subjects', adminController.assignSubjects);

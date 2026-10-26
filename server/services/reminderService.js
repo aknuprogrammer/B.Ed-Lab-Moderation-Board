@@ -20,17 +20,33 @@ const markMissedDeadlinesAsAbsent = async () => {
     // This gives students until 23:59:59 of their deadline day to submit.
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
 
+    // Only mark assignments as absent if BOTH submission deadline AND suggested marks deadline (if present) have passed.
+    // We keep status as 'Pending' with isAbsent=true so it is NOT counted as submitted or evaluated.
     const result = await Assignment.updateMany(
       {
         status: 'Pending',
-        deadline: { $lt: startOfToday }
+        isAbsent: { $ne: true },
+        $or: [
+          { filePath: null },
+          { filePath: { $exists: false } },
+          { filePath: '' }
+        ],
+        deadline: { $lt: startOfToday },
+        $and: [
+          {
+            $or: [
+              { suggestedMarksDeadline: null },
+              { suggestedMarksDeadline: { $exists: false } },
+              { suggestedMarksDeadline: { $lt: startOfToday } }
+            ]
+          }
+        ]
       },
       {
         $set: {
-          status: 'Evaluated', // Mark as evaluated to close the loop
           isAbsent: true,
           feedback: 'ABS',
-          studentNote: 'Automatically marked absent due to missed submission deadline.'
+          studentNote: 'Marked absent due to missed submission deadline.'
         },
         $unset: {
           score: "",

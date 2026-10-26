@@ -63,7 +63,7 @@ exports.submitAssignment = async ({ assignmentId, file, user, note, extractedTex
     throw new AppError(`File size exceeds the limit. ${isEligibleFor5MB ? 'Max 5MB allowed for this group subject.' : 'Max 3MB allowed for this subject.'}`, 400);
   }
 
-  if (assignment.status === 'Evaluated') {
+  if (assignment.status === 'Evaluated' && !assignment.isAbsent) {
     if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
     throw new AppError('Evaluation has already completed. You cannot change this record.', 400);
   }

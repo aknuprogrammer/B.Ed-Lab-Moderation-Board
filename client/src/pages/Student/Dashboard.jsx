@@ -128,25 +128,42 @@ const AssignmentTable = ({ title, data, currentPage, setCurrentPage, handleGener
                     </span>
                   </td>
                   <td className="hidden sm:table-cell px-6 py-4">
-                    {assignment.isAbsent ? (
-                      <span className="inline-flex items-center w-max px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-800 border border-rose-200">
-                        Absent
-                      </span>
-                    ) : assignment.status === 'Evaluated' ? (
-                      <span className="inline-flex items-center w-max px-2.5 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800">
-                        Evaluated
-                      </span>
-                    ) : assignment.status === 'Submitted' ? (
-                      <div className="flex flex-col space-y-1">
-                        <span className="inline-flex items-center w-max px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
-                          Submitted (Pending Evaluation)
+                    {(() => {
+                      const isSubmitted = !!assignment.filePath || assignment.status === 'Submitted' || (assignment.status === 'Evaluated' && !assignment.isAbsent);
+                      let isDeadlinePassed = false;
+                      if (assignment.deadline) {
+                        const d = new Date(assignment.deadline);
+                        d.setHours(23, 59, 59, 999);
+                        isDeadlinePassed = new Date() > d;
+                      }
+
+                      if (assignment.status === 'Evaluated' && !assignment.isAbsent) {
+                        return (
+                          <span className="inline-flex items-center w-max px-2.5 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800">
+                            Evaluated
+                          </span>
+                        );
+                      }
+                      if (assignment.status === 'Submitted' || isSubmitted) {
+                        return (
+                          <span className="inline-flex items-center w-max px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
+                            Submitted (Pending Evaluation)
+                          </span>
+                        );
+                      }
+                      if (isDeadlinePassed || assignment.isAbsent) {
+                        return (
+                          <span className="inline-flex items-center w-max px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200">
+                            Submission Deadline Completed
+                          </span>
+                        );
+                      }
+                      return (
+                        <span className="inline-flex items-center w-max px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">
+                          Pending
                         </span>
-                      </div>
-                    ) : (
-                      <span className="inline-flex items-center w-max px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">
-                        {assignment.status || 'Pending'}
-                      </span>
-                    )}
+                      );
+                    })()}
                   </td>
                   <td className="hidden md:table-cell px-6 py-4">
                     {assignment.deadline ? (
@@ -581,7 +598,7 @@ const Dashboard = () => {
   const [supplyPage, setSupplyPage] = useState(1);
 
   const allSubmitted = assignments.length > 0 && assignments.every(a => {
-    return a.status === 'Submitted' || a.status === 'Evaluated';
+    return !a.isAbsent && (a.status === 'Submitted' || a.status === 'Evaluated');
   });
 
   let latestCompletionDate = '';

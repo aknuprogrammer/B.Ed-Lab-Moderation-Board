@@ -921,11 +921,18 @@ exports.promoteStudents = async ({ studentIds, toSemester }) => {
 
 exports.bulkUpdateAssignmentDeadlines = async ({ assignmentIds, deadline, suggestedMarksDeadline, valuationDeadline }) => {
   const updateFields = {};
+  let shouldResetAbsent = false;
+
   if (deadline !== undefined) {
     if (deadline === null || deadline === '') {
       updateFields.deadline = null;
     } else {
       updateFields.deadline = new Date(deadline);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      if (new Date(deadline) >= today) {
+        shouldResetAbsent = true;
+      }
     }
   }
   if (suggestedMarksDeadline !== undefined) {
@@ -948,7 +955,74 @@ exports.bulkUpdateAssignmentDeadlines = async ({ assignmentIds, deadline, sugges
     { $set: updateFields }
   );
 
+  // If deadline was extended to present or future, automatically restore any auto-marked absent records
+  if (shouldResetAbsent) {
+    await Assignment.updateMany(
+      {
+        _id: { $in: assignmentIds },
+        isAbsent: true,
+        $or: [{ filePath: null }, { filePath: { $exists: false } }, { filePath: '' }]
+      },
+      {
+        $set: {
+          status: 'Pending',
+          isAbsent: false
+        },
+        $unset: {
+          feedback: "",
+          studentNote: ""
+        }
+      }
+    );
+  }
+
   return { message: `Successfully updated deadlines for ${result.modifiedCount} assignments.`, modifiedCount: result.modifiedCount };
+};
+
+exports.revertMissedDeadlines = async ({ newDeadline, collegeId, semester } = {}) => {
+  const query = {
+    isAbsent: true,
+    $or: [
+      { filePath: null },
+      { filePath: { $exists: false } },
+      { filePath: '' }
+    ]
+  };
+
+  if (collegeId && collegeId !== 'all') {
+    const studentIds = await User.find({ collegeId, role: 'STUDENT' }).distinct('_id');
+    query.studentId = { $in: studentIds };
+  }
+
+  if (semester && semester !== 'all') {
+    const semSubjects = await Subject.find({ semester: String(semester) }).distinct('_id');
+    query.subjectId = { $in: semSubjects };
+  }
+
+  const updateFields = {
+    status: 'Pending',
+    isAbsent: false
+  };
+
+  if (newDeadline) {
+    updateFields.deadline = new Date(newDeadline);
+  }
+
+  const result = await Assignment.updateMany(
+    query,
+    {
+      $set: updateFields,
+      $unset: {
+        feedback: "",
+        studentNote: ""
+      }
+    }
+  );
+
+  return {
+    message: `Successfully restored ${result.modifiedCount} assignment(s) back to Pending.`,
+    modifiedCount: result.modifiedCount
+  };
 };
 
 exports.getDashboardStats = async (collegeId, semester) => {
@@ -1006,9 +1080,17 @@ exports.getDashboardStats = async (collegeId, semester) => {
 
   const totalRecords = await Assignment.countDocuments(recordFilter);
   
+  // Only count as submitted if there is an uploaded file and not marked absent
   const totalRecordsSubmitted = await Assignment.countDocuments({
     ...recordFilter,
-    status: { $in: ['Submitted', 'Evaluated'] }
+    status: { $in: ['Submitted', 'Evaluated'] },
+    isAbsent: { $ne: true },
+    filePath: { $exists: true, $ne: null, $ne: '' }
+  });
+
+  const totalRecordsAbsent = await Assignment.countDocuments({
+    ...recordFilter,
+    isAbsent: true
   });
 
   const totalRecordsPending = totalRecords - totalRecordsSubmitted;
@@ -1133,6 +1215,7 @@ exports.getDashboardStats = async (collegeId, semester) => {
     totalRecords,
     totalRecordsSubmitted,
     totalRecordsPending,
+    totalRecordsAbsent,
     missingSuggestedMarksByCollege,
     pendingSubmissionsByCollege,
     subjectWiseCounts,
