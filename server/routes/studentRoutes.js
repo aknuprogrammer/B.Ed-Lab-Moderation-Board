@@ -17,16 +17,28 @@ const storage = multer.diskStorage({
   }
 });
 
-const upload = multer({ 
+const upload = multer({
   storage,
   limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
 });
+
+const handleRecordUpload = (req, res, next) => {
+  upload.single('file')(req, res, (err) => {
+    if (err) {
+      if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ message: 'File size exceeds the maximum 5MB limit.' });
+      }
+      return res.status(400).json({ message: err.message || 'File upload failed.' });
+    }
+    next();
+  });
+};
 
 // Middleware for student routes
 router.use(protect);
 
 router.get('/assignments', studentController.getMyAssignments);
-router.post('/assignments/:assignmentId/submit', upload.single('file'), studentController.submitAssignment);
+router.post('/assignments/:assignmentId/submit', handleRecordUpload, studentController.submitAssignment);
 router.post('/assignments/:assignmentId/log-download', studentController.logDownload);
 router.get('/paper-grades', adminController.getPaperGrades);
 

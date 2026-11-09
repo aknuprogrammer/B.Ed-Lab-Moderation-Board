@@ -6,8 +6,6 @@ import {
 import axios from 'axios';
 import { API_BASE_URL } from '../../utils/config';
 import { pdf } from '@react-pdf/renderer';
-import jsQR from 'jsqr';
-import { BrowserMultiFormatReader } from '@zxing/library';
 import BarcodePDF from '../../components/BarcodePDF';
 import CertificatePDF from '../../components/CertificatePDF';
 import SessionTimer from '../../components/SessionTimer';
@@ -279,15 +277,17 @@ const UploadRecordModal = ({ assignment, onClose, onSuccess }) => {
     const selected = e.target.files[0];
     if (!selected) return;
 
-    if (selected.type !== 'application/pdf') {
+    const isPdfMime = selected.type === 'application/pdf';
+    const isPdfExt = selected.name && selected.name.toLowerCase().endsWith('.pdf');
+    if (!isPdfMime && !isPdfExt) {
       setError('Please select a valid PDF file.');
       setFile(null);
       return;
     }
 
     const isGroupSubject = !!assignment.groupSubjectName;
-    const semester = String(assignment.subjectId?.semester);
-    const isEligibleFor5MB = isGroupSubject && (semester === '3' || semester === '4');
+    const semester = String(assignment.subjectId?.semester || '');
+    const isEligibleFor5MB = isGroupSubject || (assignment.pagesRequired && assignment.pagesRequired >= 25) || semester.includes('2') || semester.includes('3') || semester.includes('4');
 
     const MAX_SIZE = isEligibleFor5MB ? 5 * 1024 * 1024 : 3 * 1024 * 1024;
 
@@ -311,20 +311,20 @@ const UploadRecordModal = ({ assignment, onClose, onSuccess }) => {
     setUploading(true);
     setError('');
 
-    // Major Check: Scan first 5 pages (including certificate page) for QR Code to verify Student Roll Number & Subject Code
-    setScanProgress('Analyzing first 5 pages for QR Code verification...');
+    // Major Check: Scan first 3 pages (plus Page 1 OCR fallback) to verify Student Roll Number & Subject Code
+    setScanProgress('Analyzing first 3 pages for QR Code verification...');
     const verification = await verifyPdfRecordQrCode(file, assignment, user, (progressMsg) => {
       setScanProgress(progressMsg);
     });
 
     if (!verification.success) {
-      setError(verification.message || 'QR Code verification failed.');
+      setError(verification.message || 'Document verification failed.');
       setUploading(false);
       setScanProgress('');
       return;
     }
 
-    setScanProgress('QR Code verified! Uploading record...');
+    setScanProgress(verification.method === 'ocr' ? 'Certificate details verified! Uploading record...' : 'QR Code verified! Uploading record...');
 
     const formData = new FormData();
     formData.append('file', file);
@@ -401,10 +401,10 @@ const UploadRecordModal = ({ assignment, onClose, onSuccess }) => {
                 </div>
                 {(() => {
                   const isGroupSubject = !!assignment.groupSubjectName;
-                  const semester = String(assignment.subjectId?.semester);
-                  const isEligibleFor5MB = isGroupSubject && (semester === '3' || semester === '4');
+                  const semester = String(assignment.subjectId?.semester || '');
+                  const isEligibleFor5MB = isGroupSubject || (assignment.pagesRequired && assignment.pagesRequired >= 25) || semester.includes('2') || semester.includes('3') || semester.includes('4');
                   return (
-                    <p className="text-xs text-slate-400">PDF up to {isEligibleFor5MB ? '5MB' : '2.5MB'}</p>
+                    <p className="text-xs text-slate-400">PDF up to {isEligibleFor5MB ? '5MB' : '3MB'}</p>
                   );
                 })()}
               </div>
@@ -556,8 +556,9 @@ const Dashboard = () => {
       const payload = `${rollNumber}-${subjectCode}-${semester}`;
 
       const barcodeDataUrl = await QRCode.toDataURL(payload, {
-        margin: 1,
-        width: 60,
+        margin: 4,
+        width: 256,
+        errorCorrectionLevel: 'M',
         color: {
           dark: '#000000',
           light: '#ffffff'
@@ -604,7 +605,7 @@ const Dashboard = () => {
   let latestCompletionDate = '';
   if (allSubmitted) {
     const dates = assignments.map(a => {
-      const dateStr = a.updatedAt || a.submittedAt || a.createdAt;
+      const dateStr = a.submittedAt || a.updatedAt || a.createdAt;
       return dateStr ? new Date(dateStr) : new Date(0);
     });
     const latestDate = new Date(Math.max(...dates));
@@ -614,13 +615,31 @@ const Dashboard = () => {
     latestCompletionDate = `${dd}/${mm}/${yyyy}`;
   }
 
+  const assignmentStudent = assignments[0]?.studentId && typeof assignments[0].studentId === 'object'
+    ? assignments[0].studentId
+    : {};
+  const certificateUser = {
+    ...user,
+    ...assignmentStudent,
+    ...(profileData || {}),
+    collegeId: profileData?.collegeId || assignmentStudent?.collegeId || user?.collegeId,
+    courseId: profileData?.courseId || assignmentStudent?.courseId || user?.courseId,
+    currentSemester: profileData?.currentSemester || assignmentStudent?.currentSemester || user?.currentSemester,
+  };
+
   const handleGenerateCertificate = async () => {
     try {
-      const blob = await pdf(<CertificatePDF user={profileData || user} completionDate={latestCompletionDate} />).toBlob();
+      const blob = await pdf(
+        <CertificatePDF
+          user={certificateUser}
+          assignments={assignments}
+          completionDate={latestCompletionDate}
+        />
+      ).toBlob();
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `Certificate_${user.regdNo}.pdf`;
+      link.download = `Certificate_${certificateUser.regdNo || user.regdNo}.pdf`;
       link.click();
       URL.revokeObjectURL(url);
     } catch (err) {

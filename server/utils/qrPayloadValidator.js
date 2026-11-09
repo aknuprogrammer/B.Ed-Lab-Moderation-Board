@@ -24,6 +24,7 @@ exports.validateQrPayload = (qrData, { userRegdNo, subCode, groupSubjectName, su
   const normRoll = normalize(userRegdNo);
   const normSubCode = normalize(subCode);
   const normGroup = normalize(groupSubjectName);
+  const normSubName = normalize(subName);
 
   // 1. Student Roll Number verification
   if (normRoll && !clean.includes(normRoll)) {
@@ -37,6 +38,7 @@ exports.validateQrPayload = (qrData, { userRegdNo, subCode, groupSubjectName, su
   let subMatches = false;
   if (normSubCode && clean.includes(normSubCode)) subMatches = true;
   if (normGroup && clean.includes(normGroup)) subMatches = true;
+  if (normSubName && clean.includes(normSubName)) subMatches = true;
 
   if (!subMatches) {
     const expectedTarget = groupSubjectName || subCode || subName || 'this subject';

@@ -2,6 +2,18 @@ import * as pdfjsLib from 'pdfjs-dist';
 import jsQR from 'jsqr';
 import { BrowserQRCodeReader } from '@zxing/library';
 
+// Polyfill Promise.withResolvers for older mobile browsers (Chrome < 119 / Safari < 17.4)
+if (typeof Promise !== 'undefined' && typeof Promise.withResolvers !== 'function') {
+  Promise.withResolvers = function () {
+    let resolve, reject;
+    const promise = new Promise((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  };
+}
+
 // Configure PDF.js worker:
 // Production Nginx servers often lack the .mjs MIME type mapping and serve .mjs as
 // 'application/octet-stream', triggering strict browser security blocks ("Failed to fetch dynamically imported module").
@@ -249,7 +261,7 @@ function scanImageDataWithJsQR(imageData) {
     if (code && code.data && code.data.trim()) {
       return code.data.trim();
     }
-  } catch (err) {
+  } catch {
     // Ignore and continue
   }
   return null;
@@ -270,7 +282,7 @@ async function scanWithNativeBarcodeDetector(canvas) {
         }
       }
     }
-  } catch (err) {
+  } catch {
     // Ignore and fallback
   }
   return null;
@@ -290,10 +302,20 @@ function scanWithZxing(canvas) {
         return text.trim();
       }
     }
-  } catch (err) {
+  } catch {
     // Expected NotFoundException when no QR on this region
   }
   return null;
+}
+
+/**
+ * Releases canvas backing memory immediately (prevents mobile browser crashes/OOM).
+ */
+function releaseCanvas(canvas) {
+  if (canvas) {
+    canvas.width = 0;
+    canvas.height = 0;
+  }
 }
 
 /**
@@ -331,11 +353,15 @@ async function decodeRegionMultiEngine(regionCanvas, regionCtx) {
   if (codeText) return codeText;
 
   const enhancedCanvas = imageDataToCanvas(enhancedImg);
-  codeText = await scanWithNativeBarcodeDetector(enhancedCanvas);
-  if (codeText) return codeText;
+  try {
+    codeText = await scanWithNativeBarcodeDetector(enhancedCanvas);
+    if (codeText) return codeText;
 
-  codeText = scanWithZxing(enhancedCanvas);
-  if (codeText) return codeText;
+    codeText = scanWithZxing(enhancedCanvas);
+    if (codeText) return codeText;
+  } finally {
+    releaseCanvas(enhancedCanvas);
+  }
 
   // Pass 5: Otsu Adaptive Binarization (solves uneven shadows & grey background)
   const binarizedImg = createThresholdedImageData(rawImg);
@@ -362,21 +388,25 @@ async function testCanvasRegion(canvas, context, x, y, width, height) {
   const subCanvas = document.createElement('canvas');
   subCanvas.width = width;
   subCanvas.height = height;
-  const subCtx = subCanvas.getContext('2d', { willReadFrequently: true });
-  subCtx.drawImage(canvas, x, y, width, height, 0, 0, width, height);
-  return await decodeRegionMultiEngine(subCanvas, subCtx);
+  try {
+    const subCtx = subCanvas.getContext('2d', { willReadFrequently: true });
+    subCtx.drawImage(canvas, x, y, width, height, 0, 0, width, height);
+    return await decodeRegionMultiEngine(subCanvas, subCtx);
+  } finally {
+    releaseCanvas(subCanvas);
+  }
 }
 
 /**
- * Rotates a canvas by 90 degrees clockwise for scans uploaded in landscape/sideways orientation.
+ * Rotates a canvas by the given angle in degrees (90 or 270) for sideways scans.
  */
-function rotateCanvas90(canvas) {
+function rotateCanvas(canvas, degrees = 90) {
   const rot = document.createElement('canvas');
   rot.width = canvas.height;
   rot.height = canvas.width;
   const ctx = rot.getContext('2d', { willReadFrequently: true });
   ctx.translate(rot.width / 2, rot.height / 2);
-  ctx.rotate(Math.PI / 2);
+  ctx.rotate((degrees * Math.PI) / 180);
   ctx.drawImage(canvas, -canvas.width / 2, -canvas.height / 2);
   return rot;
 }
@@ -384,12 +414,12 @@ function rotateCanvas90(canvas) {
 /**
  * Extracts and decodes QR codes from a rendered HTML Canvas.
  * Tries multiple region crops and image enhancements:
- * 1. Bottom 45% (where the barcode/QR is located on all generated sheets)
- * 2. Bottom-right quadrant (exact placement of the QR code in BarcodePDF)
- * 3. Bottom-left quadrant
- * 4. Full canvas
+ * 1. Bottom-right quadrant (exact placement of the QR code in BarcodePDF)
+ * 2. Bottom 45% band
+ * 3. Full canvas
+ * 4. Bottom-left quadrant (for alternate layouts)
  * 5. Top 45% (in case student scanned the page inverted/upside down)
- * 6. 90-degree rotated canvas (in case student scanned sideways)
+ * 6. 90-degree & 270-degree rotated canvas (in case student scanned sideways)
  */
 async function findQrOnCanvas(canvas, context) {
   const width = canvas.width;
@@ -423,45 +453,256 @@ async function findQrOnCanvas(canvas, context) {
   codeText = await testCanvasRegion(canvas, context, 0, 0, width, topH);
   if (codeText) return codeText;
 
-  // 6. Try 90-degree rotated canvas (sideways/landscape scan)
-  try {
-    const rotCanvas = rotateCanvas90(canvas);
-    const rotCtx = rotCanvas.getContext('2d', { willReadFrequently: true });
-    codeText = await decodeRegionMultiEngine(rotCanvas, rotCtx);
-    if (codeText) return codeText;
-  } catch (err) {
-    // Rotation fallback failed, continue
+  // 6. Try 90-degree and 270-degree rotated canvases (sideways/landscape scan)
+  for (const angle of [90, 270]) {
+    let rotCanvas = null;
+    try {
+      rotCanvas = rotateCanvas(canvas, angle);
+      const rotCtx = rotCanvas.getContext('2d', { willReadFrequently: true });
+      codeText = await decodeRegionMultiEngine(rotCanvas, rotCtx);
+      if (codeText) return codeText;
+    } catch {
+      // Rotation fallback failed, continue
+    } finally {
+      releaseCanvas(rotCanvas);
+    }
   }
 
   return null;
 }
 
 /**
- * Renders a PDF page to a canvas at a specific scale.
+ * Renders a PDF page to a memory-bounded canvas.
+ * Caps the longest edge so mobile scanner PDFs with oversized page points don't OOM.
  */
-async function renderPageToCanvas(page, scale) {
+async function renderPageToCanvas(page, scaleOrOpts = { targetMaxDim: 1850, minScale: 0.6, maxScale: 2.5 }) {
+  let scale;
+  if (typeof scaleOrOpts === 'number') {
+    scale = scaleOrOpts;
+  } else {
+    const { targetMaxDim = 1850, minScale = 0.6, maxScale = 2.5 } = scaleOrOpts || {};
+    const baseViewport = page.getViewport({ scale: 1 });
+    const maxSide = Math.max(baseViewport.width, baseViewport.height) || 842;
+    scale = Math.max(minScale, Math.min(maxScale, targetMaxDim / maxSide));
+  }
   const viewport = page.getViewport({ scale });
   const canvas = document.createElement('canvas');
-  canvas.width = Math.floor(viewport.width);
-  canvas.height = Math.floor(viewport.height);
+  canvas.width = Math.max(1, Math.floor(viewport.width));
+  canvas.height = Math.max(1, Math.floor(viewport.height));
   const context = canvas.getContext('2d', { willReadFrequently: true });
   await page.render({ canvasContext: context, viewport }).promise;
   return { canvas, context };
 }
 
 /**
- * Verifies that the uploaded PDF contains the correct QR code on the first 5 pages
- * (including Certificate Cover Page).
- *
- * Checks:
- * 1. Student Roll Number matches the logged-in student.
- * 2. Subject Code matches the target assignment being submitted.
+ * Normalizes OCR digit lookalikes (O->0, I/L->1, S->5, B->8, Z->2) for numeric roll checks.
+ */
+function normalizeNumericLookalikes(str) {
+  return (str || '')
+    .toString()
+    .toUpperCase()
+    .replace(/O|Q|D/g, '0')
+    .replace(/I|L|\|/g, '1')
+    .replace(/Z/g, '2')
+    .replace(/S/g, '5')
+    .replace(/B/g, '8')
+    .replace(/[^0-9]/g, '');
+}
+
+/**
+ * Validates extracted text (from PDF text layer or Tesseract OCR) from Certificate Page 1
+ * against the student's Roll Number and target Subject.
+ */
+export function validateCertificateText(
+  rawText,
+  { expectedRoll = '', expectedSubCode = '', expectedGroupName = '', expectedSubName = '' } = {}
+) {
+  const text = (rawText || '').toString();
+  const normText = normalize(text);
+  if (normText.length < 20) {
+    return { valid: false, definitiveMismatch: false };
+  }
+
+  const normExpectedRoll = normalize(expectedRoll);
+  const normExpectedSubCode = normalize(expectedSubCode);
+  const normExpectedGroup = normalize(expectedGroupName);
+  const normExpectedSubName = normalize(expectedSubName);
+
+  // 1. Ensure page text looks like a Certificate cover page
+  const certStems = [
+    'CERTIF',
+    'NANNAYA',
+    'REGISTRAT',
+    'UNDERTAK',
+    'ACCOMPLISH',
+    'HANDWRIT',
+    'PRINCIPAL',
+    'SEMESTER',
+    'RECORDOF'
+  ];
+  if (!certStems.some((stem) => normText.includes(stem))) {
+    return { valid: false, definitiveMismatch: false };
+  }
+
+  // 2. Roll Number Check
+  let rollMatches = false;
+  if (!normExpectedRoll) {
+    rollMatches = true;
+  } else if (normText.includes(normExpectedRoll)) {
+    rollMatches = true;
+  } else if (/^\d{6,}$/.test(normExpectedRoll)) {
+    const tokens = text.toUpperCase().match(/[A-Z0-9|]{6,}/g) || [];
+    for (const tok of tokens) {
+      const digitCount = (tok.match(/\d/g) || []).length;
+      if (digitCount / tok.length >= 0.7) {
+        const normDigits = normalizeNumericLookalikes(tok);
+        if (normDigits.includes(normExpectedRoll)) {
+          rollMatches = true;
+          break;
+        }
+      }
+    }
+  }
+
+  if (!rollMatches) {
+    const minLen = Math.max(8, normExpectedRoll.length - 1);
+    const regMatch = text.match(/Registration\s*(?:No|Number)?\s*[:-]?\s*([A-Z0-9]{6,20})/i);
+    const candidateRolls = text.match(new RegExp(`\\b\\d{${minLen},16}\\b`, 'g')) || [];
+    const detectedOther = regMatch?.[1] || candidateRolls[0];
+    if (detectedOther && normalize(detectedOther) !== normExpectedRoll) {
+      return {
+        valid: false,
+        definitiveMismatch: true,
+        error: `Student Roll Number Mismatch (Page 1): The uploaded certificate shows Registration Number '${detectedOther}', but your Roll Number is '${expectedRoll}'. You cannot upload another student's record.`
+      };
+    }
+    return { valid: false, definitiveMismatch: false };
+  }
+
+  // 3. Subject Code & Subject Name Check
+  const pedCodesFound = (text.toUpperCase().match(/\bP[\s-_]*ED[\s-_]*\d{1,2}[A-Z]?\b/g) || []).map((c) => normalize(c));
+  const uniquePedCodes = [...new Set(pedCodesFound)];
+
+  let subCodeMatches = false;
+  if (normExpectedSubCode) {
+    if (normText.includes(normExpectedSubCode)) {
+      subCodeMatches = true;
+    } else {
+      const codeMatch = normExpectedSubCode.match(/^([A-Z]+)(\d+)([A-Z]*)$/);
+      if (codeMatch) {
+        const [, prefix, digits, suffix] = codeMatch;
+        const flexPrefix = prefix.split('').join('[\\s-_]*');
+        const digitRegex = digits
+          .replace(/0/g, '[0OQ]')
+          .replace(/1/g, '[1IL]')
+          .replace(/5/g, '[5S]')
+          .replace(/8/g, '[8B]');
+        const flexSuffix = suffix ? `[\\s-_]*${suffix}` : '';
+        const pattern = new RegExp(`${flexPrefix}[\\s-_]*${digitRegex}${flexSuffix}(?![A-Z0-9])`);
+        if (pattern.test(text.toUpperCase())) {
+          subCodeMatches = true;
+        }
+      }
+    }
+  }
+
+  if (normExpectedSubCode && uniquePedCodes.length > 0 && !subCodeMatches) {
+    const conflicting = uniquePedCodes.find((c) => c !== normExpectedSubCode);
+    if (conflicting) {
+      const displayExpected = expectedGroupName
+        ? `${expectedGroupName} (${expectedSubCode})`
+        : `${expectedSubCode} - ${expectedSubName}`;
+      return {
+        valid: false,
+        definitiveMismatch: true,
+        error: `Subject Mismatch (Page 1): You are uploading for '${displayExpected}', but the Certificate belongs to subject '${conflicting}'. Please select the correct record for this subject.`
+      };
+    }
+  }
+
+  const matchesPhrase = (phrase) => {
+    const normPhrase = normalize(phrase);
+    if (!normPhrase) return false;
+    if (normText.includes(normPhrase)) return true;
+    const words = (phrase || '')
+      .toUpperCase()
+      .split(/[^A-Z0-9]+/)
+      .filter((w) => w.length >= 4);
+    if (words.length >= 1) {
+      const hitCount = words.filter((w) => {
+        const stem = w.replace(/S$/, '');
+        return normText.includes(w) || (stem.length >= 4 && normText.includes(stem));
+      }).length;
+      return hitCount >= Math.ceil(words.length * 0.75);
+    }
+    return false;
+  };
+
+  const groupMatches = normExpectedGroup ? matchesPhrase(expectedGroupName) : false;
+  const subNameMatches = normExpectedSubName ? matchesPhrase(expectedSubName) : false;
+
+  let subjectMatches;
+  if (normExpectedSubCode && normExpectedGroup) {
+    // Pedagogy/group records require BOTH exact subject code (e.g. P-ED-27A vs P-ED-28A) and group subject name (e.g. MATHEMATICS vs ENGLISH)
+    subjectMatches = subCodeMatches && groupMatches;
+  } else if (normExpectedSubCode) {
+    subjectMatches = subCodeMatches || (uniquePedCodes.length === 0 && subNameMatches);
+  } else {
+    subjectMatches = groupMatches || subNameMatches;
+  }
+
+  if (!subjectMatches) {
+    return { valid: false, definitiveMismatch: false };
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Runs Tesseract OCR on the upper 80% of Certificate Page 1 as a fallback when QR is blurred/unreadable.
+ */
+async function runPage1Ocr(page1Canvas, page1Ctx) {
+  const cropW = page1Canvas.width;
+  const cropH = Math.max(20, Math.floor(page1Canvas.height * 0.80));
+  const rawImg = page1Ctx.getImageData(0, 0, cropW, cropH);
+  const enhanced = createEnhancedImageData(rawImg, { gamma: 0.72, contrastBoost: 1.22 });
+  const ocrCanvas = imageDataToCanvas(enhanced);
+
+  let worker = null;
+  try {
+    const { createWorker } = await import('tesseract.js');
+    worker = await createWorker('eng', 1, {
+      errorHandler: (err) => console.warn('OCR worker notice:', err)
+    });
+    const ocrPromise = worker.recognize(ocrCanvas);
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('OCR verification timed out')), 25000)
+    );
+    const result = await Promise.race([ocrPromise, timeoutPromise]);
+    return result?.data?.text || '';
+  } finally {
+    releaseCanvas(ocrCanvas);
+    if (worker) {
+      try {
+        await worker.terminate();
+      } catch (termErr) {
+        console.warn('OCR worker cleanup warning:', termErr);
+      }
+    }
+  }
+}
+
+/**
+ * Verifies that the uploaded PDF belongs to the student and subject by:
+ * 1. Scanning the first 3 pages for the portal QR code (passing on the 1st matching page).
+ * 2. Deep-scanning Page 1 (Certificate cover page) at higher resolution if needed.
+ * 3. Falling back to Certificate Page 1 embedded text / OCR check if the QR is too blurred/compressed.
  *
  * @param {File} fileObj - Uploaded PDF file object
  * @param {Object} assignment - Assignment being submitted
  * @param {Object} user - Logged in student user object
  * @param {Function} onProgress - Callback with status message
- * @returns {Promise<{ success: boolean, message?: string, qrData?: string }>}
+ * @returns {Promise<{ success: boolean, message?: string, qrData?: string, method?: 'qr'|'ocr' }>}
  */
 export async function verifyPdfRecordQrCode(fileObj, assignment, user, onProgress) {
   try {
@@ -496,7 +737,7 @@ export async function verifyPdfRecordQrCode(fileObj, assignment, user, onProgres
       return { success: false, message: 'Invalid or empty PDF document.' };
     }
 
-    const maxPagesToScan = Math.min(5, pdf.numPages);
+    const maxPagesToScan = Math.min(3, pdf.numPages);
     let detectedQrCodes = [];
 
     // Helper validator
@@ -549,39 +790,47 @@ export async function verifyPdfRecordQrCode(fileObj, assignment, user, onProgres
       return { valid: true, parsed };
     };
 
-    // Primary Pass: Scan pages 1 to 5 at standard high-resolution (scale 1.85)
+    // Primary Pass: Scan pages 1 to 3 at bounded high-resolution (passes on first valid QR match)
     for (let pageNum = 1; pageNum <= maxPagesToScan; pageNum++) {
       if (onProgress) {
         onProgress(`Scanning Page ${pageNum} of ${maxPagesToScan} for QR Code...`);
       }
 
       const page = await pdf.getPage(pageNum);
-      const { canvas, context } = await renderPageToCanvas(page, 1.85);
-      const qrRaw = await findQrOnCanvas(canvas, context);
+      let canvas = null;
+      try {
+        const rendered = await renderPageToCanvas(page, { targetMaxDim: 1850, minScale: 0.6, maxScale: 2.5 });
+        canvas = rendered.canvas;
+        const qrRaw = await findQrOnCanvas(canvas, rendered.context);
 
-      if (qrRaw) {
-        const check = validateDetectedQr(qrRaw, pageNum);
-        if (!check.valid) {
-          return { success: false, message: check.error };
+        if (qrRaw) {
+          const check = validateDetectedQr(qrRaw, pageNum);
+          if (!check.valid) {
+            return { success: false, message: check.error };
+          }
+
+          detectedQrCodes.push({ pageNum, parsed: check.parsed, qrRaw });
+          break;
         }
-
-        detectedQrCodes.push({ pageNum, parsed: check.parsed, qrRaw });
-        // Valid QR found and verified matching student and subject -> immediate success!
-        break;
+      } finally {
+        releaseCanvas(canvas);
+        if (typeof page.cleanup === 'function') page.cleanup();
       }
     }
 
-    // Secondary Pass: If not detected yet, perform an Intensive High-DPI Scan (scale 2.6) on Page 1
-    // (The Certificate page is almost always Page 1 and high-DPI resolves compressed/blurry QR modules)
+    // Secondary Pass: If not detected yet, perform a higher-DPI scan on Page 1
     if (detectedQrCodes.length === 0 && pdf.numPages >= 1) {
       if (onProgress) {
         onProgress('Performing deep scan with brightness enhancement on Certificate page...');
       }
 
+      let page1 = null;
+      let canvas = null;
       try {
-        const page1 = await pdf.getPage(1);
-        const { canvas, context } = await renderPageToCanvas(page1, 2.6);
-        const qrRaw = await findQrOnCanvas(canvas, context);
+        page1 = await pdf.getPage(1);
+        const rendered = await renderPageToCanvas(page1, { targetMaxDim: 2600, minScale: 0.85, maxScale: 3.2 });
+        canvas = rendered.canvas;
+        const qrRaw = await findQrOnCanvas(canvas, rendered.context);
 
         if (qrRaw) {
           const check = validateDetectedQr(qrRaw, 1);
@@ -592,18 +841,94 @@ export async function verifyPdfRecordQrCode(fileObj, assignment, user, onProgres
         }
       } catch (deepErr) {
         console.warn('Deep scan attempt encountered an issue:', deepErr);
+      } finally {
+        releaseCanvas(canvas);
+        if (page1 && typeof page1.cleanup === 'function') page1.cleanup();
       }
     }
 
-    // Verify that at least one QR code was detected across the first 5 pages
+    // Tertiary Fallback: If QR was blurred/damaged by heavy compression, verify Certificate Page 1 text / OCR
+    if (detectedQrCodes.length === 0 && pdf.numPages >= 1) {
+      let page1 = null;
+      let ocrCanvas = null;
+      try {
+        page1 = await pdf.getPage(1);
+
+        // Step 3A: Fast check of embedded PDF text layer (e.g., iOS / Adobe Scan Live Text)
+        try {
+          const textContent = await page1.getTextContent();
+          const embeddedText = (textContent?.items || []).map((item) => item.str || '').join(' ');
+          if (embeddedText.trim().length >= 20) {
+            const textCheck = validateCertificateText(embeddedText, {
+              expectedRoll,
+              expectedSubCode,
+              expectedGroupName,
+              expectedSubName
+            });
+            if (textCheck.definitiveMismatch) {
+              return { success: false, message: textCheck.error };
+            }
+            if (textCheck.valid) {
+              const verifiedTag = `OCR_VERIFIED-${expectedRoll || 'STUDENT'}-${expectedSubCode || expectedGroupName || 'SUB'}`;
+              if (onProgress) onProgress('Certificate details verified!');
+              return {
+                success: true,
+                qrData: verifiedTag,
+                pagesVerified: 1,
+                method: 'ocr'
+              };
+            }
+          }
+        } catch (textErr) {
+          console.warn('PDF text layer check skipped:', textErr);
+        }
+
+        // Step 3B: Tesseract OCR on Certificate Page 1
+        if (onProgress) {
+          onProgress('QR unclear — verifying Certificate Page 1 text...');
+        }
+
+        const rendered = await renderPageToCanvas(page1, { targetMaxDim: 2000, minScale: 0.7, maxScale: 2.6 });
+        ocrCanvas = rendered.canvas;
+        const ocrText = await runPage1Ocr(ocrCanvas, rendered.context);
+
+        const ocrCheck = validateCertificateText(ocrText, {
+          expectedRoll,
+          expectedSubCode,
+          expectedGroupName,
+          expectedSubName
+        });
+
+        if (ocrCheck.definitiveMismatch) {
+          return { success: false, message: ocrCheck.error };
+        }
+        if (ocrCheck.valid) {
+          const verifiedTag = `OCR_VERIFIED-${expectedRoll || 'STUDENT'}-${expectedSubCode || expectedGroupName || 'SUB'}`;
+          if (onProgress) onProgress('Certificate details verified!');
+          return {
+            success: true,
+            qrData: verifiedTag,
+            pagesVerified: 1,
+            method: 'ocr'
+          };
+        }
+      } catch (ocrErr) {
+        console.warn('OCR fallback encountered an issue:', ocrErr);
+      } finally {
+        releaseCanvas(ocrCanvas);
+        if (page1 && typeof page1.cleanup === 'function') page1.cleanup();
+      }
+    }
+
+    // Verify that at least one QR code or Certificate Page 1 verification succeeded
     if (detectedQrCodes.length === 0) {
       return {
         success: false,
-        message: `No QR Code detected in the first ${maxPagesToScan} pages (including Certificate page).\n\n` +
+        message: `Could not verify QR Code or Certificate details in the first ${maxPagesToScan} pages.\n\n` +
           `Possible causes & solutions:\n` +
-          `1. Dark / Low Lighting: The scanned Certificate page may be too dark or shadowed. Re-scan in good light using 'Document / B&W' mode on your scanner app.\n` +
-          `2. Extreme Compression: If you compressed this PDF (e.g. using 11zon or CamScanner), the QR code may have become blurred. Try 'Medium' compression instead of high compression.\n` +
-          `3. Missing Cover Page: Ensure you included the official Barcode / Certificate cover page generated from this portal as Page 1.`
+          `1. Missing Cover Page: Ensure the official Certificate / Barcode cover page generated from this portal is Page 1.\n` +
+          `2. Wrong Subject or Roll Number: Check that you selected the matching subject and your Registration Number is clearly visible on Page 1.\n` +
+          `3. Dark or Blurry Scan: Re-scan Page 1 in good light using 'Document / B&W' mode and avoid extreme PDF compression.`
       };
     }
 
@@ -612,7 +937,8 @@ export async function verifyPdfRecordQrCode(fileObj, assignment, user, onProgres
     return {
       success: true,
       qrData: detectedQrCodes[0].qrRaw,
-      pagesVerified: detectedQrCodes.length
+      pagesVerified: detectedQrCodes.length,
+      method: 'qr'
     };
   } catch (err) {
     console.error('PDF QR Verification Error:', err);

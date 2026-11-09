@@ -4,6 +4,7 @@ const fs = require('fs');
 const pdfParse = require('pdf-parse');
 const stringSimilarity = require('string-similarity');
 const AppError = require('../utils/AppError');
+const { isSameSemester } = require('../utils/semesterHelper');
 
 exports.getMyAssignments = async (user) => {
   const studentId = user._id;
@@ -24,8 +25,8 @@ exports.getMyAssignments = async (user) => {
   const activeSemester = user.currentSemester || '';
   const filtered = assignments.filter(assignment => {
     const subSemester = assignment.subjectId?.semester || '';
-    
-    if (subSemester === activeSemester) {
+
+    if (isSameSemester(subSemester, activeSemester)) {
       return true;
     }
     
@@ -80,7 +81,7 @@ exports.submitAssignment = async ({ assignmentId, file, user, note, extractedTex
   try {
     const dataBuffer = fs.readFileSync(file.path);
 
-    // Inspect Certificate Page (Pages 1 & 2) for digitally superimposed signature overlays or digital annotations
+    // Inspect Certificate Page 1 for digitally superimposed signature overlays or digital annotations
     const { inspectPdfSignatureLiveness } = require('../utils/pdfInspector');
     const inspectionResult = await inspectPdfSignatureLiveness(dataBuffer);
     if (inspectionResult.isDigitallySignedImageOverlay) {

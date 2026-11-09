@@ -154,14 +154,14 @@ const styles = StyleSheet.create({
     lineHeight: 1.45,
     textAlign: 'justify',
     color: '#111827',
-    marginBottom: 15,
+    marginBottom: 10,
     width: '92%',
     alignSelf: 'center',
   },
   studentSigRow: {
     flexDirection: 'row',
     justifyContent: 'flex-start',
-    marginBottom: 25,
+    marginBottom: 14,
   },
   signaturesBlock: {
     marginTop: 6,
@@ -210,8 +210,8 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   barcodeImg: {
-    width: 120,
-    height: 32,
+    width: 64,
+    height: 64,
     objectFit: 'contain',
     alignSelf: 'flex-end',
   },

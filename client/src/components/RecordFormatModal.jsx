@@ -72,8 +72,9 @@ const RecordFormatModal = ({ isOpen, onClose }) => {
       // Generate QR code image data URL for preview
       const QRCode = (await import('qrcode')).default;
       const barcodeDataUrl = await QRCode.toDataURL('240011223344-BED201-2', {
-        margin: 1,
-        width: 60,
+        margin: 4,
+        width: 256,
+        errorCorrectionLevel: 'M',
         color: {
           dark: '#000000',
           light: '#ffffff'
